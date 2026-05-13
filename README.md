@@ -51,7 +51,7 @@ ORG_AGENT_LLM_MODEL=claude-3-5-haiku-latest
 ORG_AGENT_API_KEY=your-provider-key
 ```
 
-LLM settings are required. Runtime settings are optional and have defaults.
+LLM settings are required. Runtime settings are optional and have defaults. 
 
 ```env
 ORG_AGENT_REQUEST_TIMEOUT=20
