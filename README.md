@@ -8,7 +8,7 @@ It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, an
 
 - Looks up an organization by name.
 - Uses a provided website, or discovers one through an optional search provider.
-- Crawls the website with Playwright.
+- Crawls the website with Playwright. 
 - Follows useful links found on the website, such as contact, imprint, legal, privacy, and about pages.
 - Optionally queries configured registry API endpoints.
 - Sends gathered evidence to an LLM.
