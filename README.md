@@ -107,7 +107,7 @@ ORG_AGENT_SEARCH_API_KEY=your-search-key
 If `ORG_AGENT_SEARCH_PROVIDER=none`, the agent will not try to discover a website from the name.
 
 ## Website Crawling
-
+ 
 The crawler starts only from the provided or discovered website URL. It does not guess paths like `/contact` or `/impressum`.
 
 The crawler:
