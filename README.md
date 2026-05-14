@@ -35,31 +35,21 @@ ORG_AGENT_LLM_MODEL=llama3.1
 ORG_AGENT_OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-OpenAI example:
+API example:
 
 ```env
-ORG_AGENT_LLM_PROVIDER=openai
-ORG_AGENT_LLM_MODEL=gpt-4.1-mini
+ORG_AGENT_LLM_PROVIDER=openai|anthropic
+ORG_AGENT_LLM_MODEL=gpt-4.1-mini|claude-3-5-haiku-latest
 ORG_AGENT_API_KEY=your-provider-key
 ```
 
-Anthropic example:
-
-```env
-ORG_AGENT_LLM_PROVIDER=anthropic
-ORG_AGENT_LLM_MODEL=claude-3-5-haiku-latest
-ORG_AGENT_API_KEY=your-provider-key
-```
-
-LLM settings are required. Runtime settings are optional and have defaults. 
+Optional variables:
 
 ```env
 ORG_AGENT_REQUEST_TIMEOUT=20
 ORG_AGENT_CRAWL_MAX_PAGES=6
 ORG_AGENT_CRAWL_MAX_DEPTH=2
 ```
-
-`OLLAMA_BASE_URL` is accepted as a fallback, but `ORG_AGENT_OLLAMA_BASE_URL` is preferred.
 
 ## CLI
 
