@@ -29,26 +29,26 @@ Create a `.env` file in the project root.
 
 
 ```env
- # Required environment variables:
- ORG_AGENT_LLM_PROVIDER=openai|anthropic|ollama
- ORG_AGENT_LLM_MODEL=<model name>
+# Required environment variables:
+ORG_AGENT_LLM_PROVIDER=openai|anthropic|ollama
+ORG_AGENT_LLM_MODEL=<model name>
 
- # Required for OpenAI/Anthropic:
- ORG_AGENT_API_KEY=<provider API key>
+# Required for OpenAI/Anthropic:
+ORG_AGENT_API_KEY=<provider API key>
 
- # Required for Ollama:
- ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
+# Required for Ollama:
+ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
 
- # Optional web search environment variables:
- ORG_AGENT_SEARCH_PROVIDER=tavily|brave|none
- ORG_AGENT_SEARCH_API_KEY=<search API key for tavily/brave>
+# Optional: Search provider used to discover a website when --website is not provided. Use none to disable search.
+ORG_AGENT_SEARCH_PROVIDER=tavily|brave|none
+ORG_AGENT_SEARCH_API_KEY=<search API key for tavily/brave>
 
- # Optional runtime environment variables:
- ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
- ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
- ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
- ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
- ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
+# Optional runtime environment variables:
+ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
+ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
+ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
+ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
+ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 ```
 
 
