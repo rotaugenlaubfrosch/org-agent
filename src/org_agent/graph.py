@@ -180,7 +180,7 @@ def build_graph(
             progress,
         )
         _merge_profile_patch(state.profile, extraction.profile_patch)
-        state.profile.evidence.extend(extraction.evidence)
+        _extend_evidence_dedup(state.profile.evidence, extraction.evidence)
         report(progress, "website", f"Extraction: {extraction.reasoning}")
 
         decision = await _select_next_links(
@@ -309,8 +309,10 @@ async def _extract_page_info(
         "You are extracting factual information about an organization from a website page.\n"
         "Target fields: name, website, registration_id, legal_form, industry, description, "
         "address, phone, email, country, region.\n"
-        "Only fill fields directly supported by evidence in the text. Use null for unknown fields.\n"
-        "Write brief evidence entries explaining what text supported each extracted value.\n"
+        "Only fill fields that are not already present in the partial profile. Use null for unknown fields.\n"
+        "Write brief evidence entries for each extracted value. Use the page URL as the source. "
+        "Write a one-sentence factual explanation as reasoning.\n"
+        "Do not re-add evidence for field-value pairs that already appear in the previously extracted evidence.\n"
         "Do not include advertising language in the description; write a factual summary.\n\n"
         f"{parser.get_format_instructions()}\n\n"
         f"Organization name: {organization_name}\n\n"
@@ -406,6 +408,13 @@ def _merge_profile_patch(profile: OrganizationProfile, patch: OrganizationProfil
     for field, value in patch.model_dump().items():
         if value not in {None, ""}:
             setattr(profile, field, value)
+
+
+def _extend_evidence_dedup(existing: list[EvidenceEntry], incoming: list[EvidenceEntry]) -> None:
+    known = {(e.field, e.value) for e in existing if e.value is not None}
+    for entry in incoming:
+        if entry.value is not None and (entry.field, entry.value) not in known:
+            existing.append(entry)
 
 
 def _should_continue_crawl(state: AgentState, settings: Settings) -> bool:
