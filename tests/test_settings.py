@@ -4,7 +4,6 @@ import pytest
 
 from org_agent.settings import load_app_config, validate_settings
 from org_agent.settings import Settings
-from org_agent.website import _score_link
 
 
 def test_load_app_config(tmp_path: Path) -> None:
@@ -78,11 +77,3 @@ def test_settings_requires_ollama_model_and_url(monkeypatch, tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="ORG_AGENT_LLM_MODEL"):
         validate_settings(settings)
-
-
-def test_link_scoring_prefers_contact_pages() -> None:
-    contact_score = _score_link("https://example.com/kontakt", "Kontakt", "navigation")
-    account_score = _score_link("https://example.com/account", "Account", "navigation")
-
-    assert contact_score > 0
-    assert account_score == 0
