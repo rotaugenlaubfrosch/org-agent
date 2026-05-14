@@ -118,10 +118,13 @@ The crawler:
 - scrolls the page to trigger lazy-loaded content
 - extracts visible body text
 - extracts actual links from the page
-- scores links with deterministic code
-- follows useful links up to the configured crawl limits
+- removes obvious junk links such as carts, login pages, product detail pages, campaigns, and social media
+- asks the LLM to update the partial profile from the current page
+- asks the LLM whether enough information has been collected
+- asks the LLM which remaining candidate links should be visited next
+- repeats page-by-page up to the configured crawl limits
 
-The LLM does not decide which links to follow. Link scoring and filtering are deterministic crawler logic.
+The crawl uses a hybrid approach. Deterministic filtering removes obvious noise before the LLM sees the links, including shopping, account/login, product detail, recipe, campaign, social media, and static asset links. Candidate links must also contain an organization-information signal such as contact, imprint/legal, privacy, company/about, story, or terms. The LLM then receives the current page text, accumulated page evidence, registry evidence, the current partial profile, and the filtered candidate links. It returns a profile patch, evidence entries, missing fields, a stop/continue decision, and up to three actual discovered URLs to visit next. The crawler does not invent `/contact` or `/impressum` paths.
 
 Default crawl limits:
 
@@ -139,7 +142,7 @@ ORG_AGENT_PLAYWRIGHT_SLOW_MO=300
 
 `ORG_AGENT_PLAYWRIGHT_SLOW_MO` adds a delay in milliseconds to Playwright actions, which makes navigation easier to observe.
 
-The default trace shows concise `Checking:` lines while crawling, then a final crawl tree. In the tree:
+The default trace shows concise `Checking:` lines while crawling, the exact links passed to the LLM for each page, the links the LLM selected, then a final crawl tree. In the tree:
 
 - green links were selected as LLM input
 - gray links were skipped or queued but not visited
