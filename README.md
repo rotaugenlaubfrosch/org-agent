@@ -27,29 +27,28 @@ uv run playwright install chromium
 
 Create a `.env` file in the project root.
 
-Ollama example:
 
 ```env
-ORG_AGENT_LLM_PROVIDER=ollama
-ORG_AGENT_LLM_MODEL=llama3.1
-ORG_AGENT_OLLAMA_BASE_URL=http://localhost:11434
+ # Required environment variables:
+ ORG_AGENT_LLM_PROVIDER=openai|anthropic|ollama
+ ORG_AGENT_LLM_MODEL=<model name>
+
+ # Required for OpenAI/Anthropic:
+ ORG_AGENT_API_KEY=<provider API key>
+
+ # Required for Ollama:
+ ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
+
+ # Optional web search environment variables:
+ ORG_AGENT_SEARCH_PROVIDER=tavily|brave|none
+ ORG_AGENT_SEARCH_API_KEY=<search API key for tavily/brave>
+
+ # Optional runtime environment variables:
+ ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
+ ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
+ ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
 ```
 
-API example:
-
-```env
-ORG_AGENT_LLM_PROVIDER=openai|anthropic
-ORG_AGENT_LLM_MODEL=gpt-4.1-mini|claude-3-5-haiku-latest
-ORG_AGENT_API_KEY=your-provider-key
-```
-
-Optional variables:
-
-```env
-ORG_AGENT_REQUEST_TIMEOUT=20
-ORG_AGENT_CRAWL_MAX_PAGES=6
-ORG_AGENT_CRAWL_MAX_DEPTH=2
-```
 
 ## CLI
 
@@ -196,9 +195,8 @@ The result is an `OrganizationProfile` with:
 - `country`
 - `region`
 - `derivation`
-- `confidence`
 
-The `description` should be factual and non-promotional. The `derivation` entries explain sources, decisions, and field-level confidence.
+The `description` should be factual and non-promotional. The `derivation` entries explain sources and decisions.
 
 ## Development
 
