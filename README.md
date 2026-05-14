@@ -12,7 +12,7 @@ It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, an
 - Follows useful links found on the website, such as contact, imprint, legal, privacy, and about pages.
 - Optionally queries configured registry API endpoints.
 - Sends gathered evidence to an LLM.
-- Returns a structured organization profile with derivation evidence.
+- Returns a structured organization profile with evidence entries.
 
 ## Workflow
 
@@ -47,10 +47,20 @@ Create a `.env` file in the project root.
  ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
  ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
  ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
+ ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
+ ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 ```
 
 
 ## CLI
+
+Run `uv run org-agent` to show the help dashboard.
+
+Common lookup options:
+
+- `--website <url>`: use a known official website
+- `--json`: print raw JSON output
+- `--quiet`: suppress progress output
 
 Run with a known website:
 
@@ -69,6 +79,8 @@ Suppress progress output:
 ```bash
 uv run org-agent lookup "Example Ltd" --website https://example.com --quiet
 ```
+
+The `lookup` command supports `--quiet` to suppress the live trace and show only the result.
 
 Use a registry config:
 
@@ -117,6 +129,15 @@ Default crawl limits:
 ORG_AGENT_CRAWL_MAX_PAGES=6
 ORG_AGENT_CRAWL_MAX_DEPTH=2
 ```
+
+To watch Playwright operate in a visible browser window, disable headless mode:
+
+```env
+ORG_AGENT_PLAYWRIGHT_HEADLESS=false
+ORG_AGENT_PLAYWRIGHT_SLOW_MO=300
+```
+
+`ORG_AGENT_PLAYWRIGHT_SLOW_MO` adds a delay in milliseconds to Playwright actions, which makes navigation easier to observe.
 
 The default trace shows concise `Checking:` lines while crawling, then a final crawl tree. In the tree:
 
@@ -194,9 +215,9 @@ The result is an `OrganizationProfile` with:
 - `email`
 - `country`
 - `region`
-- `derivation`
+- `evidence`
 
-The `description` should be factual and non-promotional. The `derivation` entries explain sources and decisions.
+The `description` should be factual and non-promotional. The `evidence` entries explain sources and decisions.
 
 ## Development
 
