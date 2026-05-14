@@ -79,6 +79,8 @@ async def crawl_website(
     website: str,
     max_pages: int = 6,
     max_depth: int = 2,
+    headless: bool = True,
+    slow_mo: int = 0,
     progress: ProgressCallback | None = None,
 ) -> list[WebsitePage]:
     normalized = _normalize_url(website)
@@ -92,7 +94,7 @@ async def crawl_website(
     candidates = [CrawlTarget(url=normalized, depth=0, node_id=0)]
     next_node_id = 1
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
+        browser = await playwright.chromium.launch(headless=headless, slow_mo=slow_mo)
         context = await browser.new_context(ignore_https_errors=True)
         page = await context.new_page()
 

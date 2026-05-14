@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     request_timeout: float = Field(default=20.0, alias="ORG_AGENT_REQUEST_TIMEOUT")
     crawl_max_pages: int = Field(default=6, alias="ORG_AGENT_CRAWL_MAX_PAGES")
     crawl_max_depth: int = Field(default=2, alias="ORG_AGENT_CRAWL_MAX_DEPTH")
+    playwright_headless: bool = Field(default=True, alias="ORG_AGENT_PLAYWRIGHT_HEADLESS")
+    playwright_slow_mo: int = Field(default=0, alias="ORG_AGENT_PLAYWRIGHT_SLOW_MO")
 
     def __init__(self, **data: object) -> None:
         env_path = find_dotenv(usecwd=True)
@@ -32,7 +34,14 @@ class Settings(BaseSettings):
             load_dotenv(env_path, override=False)
         super().__init__(**data)
 
-    @field_validator("request_timeout", "crawl_max_pages", "crawl_max_depth", mode="before")
+    @field_validator(
+        "request_timeout",
+        "crawl_max_pages",
+        "crawl_max_depth",
+        "playwright_headless",
+        "playwright_slow_mo",
+        mode="before",
+    )
     @classmethod
     def blank_optional_runtime_to_default(cls, value: object, info: ValidationInfo) -> object:
         if value != "":
@@ -41,6 +50,8 @@ class Settings(BaseSettings):
             "request_timeout": 20.0,
             "crawl_max_pages": 6,
             "crawl_max_depth": 2,
+            "playwright_headless": True,
+            "playwright_slow_mo": 0,
         }
         return defaults[info.field_name]
 

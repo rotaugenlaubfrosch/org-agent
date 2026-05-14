@@ -12,7 +12,7 @@ from org_agent.llm import build_chat_model
 from org_agent.models import (
     AgentState,
     AppConfig,
-    DerivationEntry,
+    EvidenceEntry,
     LookupInput,
     OrganizationProfile,
     SearchResult,
@@ -86,6 +86,8 @@ def build_graph(
                 state.website,
                 max_pages=settings.crawl_max_pages,
                 max_depth=settings.crawl_max_depth,
+                headless=settings.playwright_headless,
+                slow_mo=settings.playwright_slow_mo,
                 progress=progress,
             )
         except Exception as exc:  # noqa: BLE001
@@ -100,7 +102,7 @@ def build_graph(
         if state.website and not profile.website:
             profile.website = state.website
         state.profile = profile
-        report(progress, "extract", f"Extraction complete with confidence {profile.confidence:.2f}.")
+        report(progress, "extract", "Extraction complete.")
         return state
 
     graph = StateGraph(AgentState)
@@ -130,13 +132,12 @@ async def run_lookup(
     if state.profile is None:
         raise RuntimeError("Lookup did not produce an organization profile.")
     for error in state.errors:
-        state.profile.derivation.append(
-            DerivationEntry(
+        state.profile.evidence.append(
+            EvidenceEntry(
                 field="general",
                 value=None,
                 source="agent",
                 reasoning=error,
-                confidence=0.0,
             )
         )
     return state.profile
@@ -162,7 +163,7 @@ def _build_extraction_prompt(state: AgentState, parser: PydanticOutputParser) ->
     return (
         "Extract an organization profile from the following evidence.\n"
         "Use null for unknown fields. Keep description short, structural, and factual.\n"
-        "The derivation list must explain sources, decisions, and confidence for important fields.\n\n"
+        "The evidence list must explain sources and decisions for important fields.\n\n"
         f"{parser.get_format_instructions()}\n\n"
         f"Evidence JSON:\n{json.dumps(context, ensure_ascii=False, indent=2)}"
     )

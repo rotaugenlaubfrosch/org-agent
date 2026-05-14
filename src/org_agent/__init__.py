@@ -1,4 +1,4 @@
 from org_agent.api import lookup_organization
-from org_agent.models import DerivationEntry, OrganizationProfile
+from org_agent.models import EvidenceEntry, OrganizationProfile
 
-__all__ = ["DerivationEntry", "OrganizationProfile", "lookup_organization"]
+__all__ = ["EvidenceEntry", "OrganizationProfile", "lookup_organization"]

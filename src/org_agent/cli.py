@@ -30,21 +30,31 @@ Optional runtime environment variables:
 ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
 ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
 ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
+ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
+ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
+
+Common lookup options:
+  --website <url>  Use a known official website
+  --json           Print raw JSON output
+  --quiet          Suppress progress output
+
+Examples:
+  org-agent lookup "Example Ltd"
+  org-agent lookup "Example Ltd" --website https://example.com
+  org-agent lookup "Example Ltd" --website https://example.com --quiet
 """
 
-app = typer.Typer(help=HELP_TEXT)
+app = typer.Typer(help=HELP_TEXT, add_completion=False)
 console = Console()
 err_console = Console(stderr=True)
 
 
-@app.callback()
-def main() -> None:
-    """Enrich organization profiles from a name and optional website.
-
-    Use `org-agent lookup --help` to show lookup arguments.
-    Typer's `--install-completion` installs shell autocompletion.
-    Typer's `--show-completion` prints the completion script instead of installing it.
-    """
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Enrich organization profiles from a name and optional website."""
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
 
 @app.command()
@@ -90,6 +100,13 @@ def lookup(
     ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
     ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
     ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
+    ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
+    ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
+
+    Examples:
+    org-agent lookup "Example Ltd"
+    org-agent lookup "Example Ltd" --website https://example.com
+    org-agent lookup "Example Ltd" --website https://example.com --quiet
     """
     try:
         if quiet:
@@ -131,23 +148,18 @@ def _print_profile(profile: OrganizationProfile) -> None:
         "email",
         "country",
         "region",
-        "confidence",
     ):
         value = getattr(profile, field)
         table.add_row(field, "" if value is None else str(value))
 
     console.print(table)
 
-    if profile.derivation:
-        lines = []
-        for entry in profile.derivation:
-            source = f" Source: {entry.source}." if entry.source else ""
-            value = f" Value: {entry.value}." if entry.value else ""
-            lines.append(
-                f"[bold]{entry.field}[/bold] ({entry.confidence:.2f}):"
-                f"{value}{source} {entry.reasoning}"
-            )
-        console.print(Panel("\n".join(lines), title="Derivation"))
+    lines = []
+    for entry in profile.evidence:
+        source = f" Source: {entry.source}." if entry.source else ""
+        value = f" Value: {entry.value}." if entry.value else ""
+        lines.append(f"[bold]{entry.field}[/bold]:{value}{source} {entry.reasoning}")
+    console.print(Panel("\n".join(lines) or "No evidence entries returned.", title="Evidence"))
 
 
 def _make_progress_logger():

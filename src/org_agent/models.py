@@ -5,12 +5,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, HttpUrl
 
 
-class DerivationEntry(BaseModel):
+class EvidenceEntry(BaseModel):
     field: str = Field(description="The output field this evidence supports, or 'general'.")
     value: str | None = Field(default=None, description="The derived value, if applicable.")
     source: str | None = Field(default=None, description="URL, registry name, or process step.")
     reasoning: str = Field(description="Brief factual explanation of how this was derived.")
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class OrganizationProfile(BaseModel):
@@ -28,8 +27,7 @@ class OrganizationProfile(BaseModel):
     email: str | None = None
     country: str | None = None
     region: str | None = None
-    derivation: list[DerivationEntry] = Field(default_factory=list)
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence: list[EvidenceEntry] = Field(default_factory=list)
 
 
 class LookupInput(BaseModel):

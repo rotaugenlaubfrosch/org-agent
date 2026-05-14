@@ -26,11 +26,14 @@ registries:
     assert config.registries[0].name == "demo"
 
 
-def test_settings_accepts_project_scoped_ollama_url(monkeypatch) -> None:
+def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ORG_AGENT_LLM_PROVIDER", "ollama")
     monkeypatch.setenv("ORG_AGENT_LLM_MODEL", "llama3.1")
     monkeypatch.setenv("ORG_AGENT_OLLAMA_BASE_URL", "http://ollama.local:11434")
     monkeypatch.delenv("ORG_AGENT_REQUEST_TIMEOUT", raising=False)
+    monkeypatch.delenv("ORG_AGENT_PLAYWRIGHT_HEADLESS", raising=False)
+    monkeypatch.delenv("ORG_AGENT_PLAYWRIGHT_SLOW_MO", raising=False)
 
     settings = Settings()
 
@@ -38,7 +41,20 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch) -> None:
     assert settings.request_timeout == 20.0
     assert settings.crawl_max_pages == 6
     assert settings.crawl_max_depth == 2
+    assert settings.playwright_headless is True
+    assert settings.playwright_slow_mo == 0
     validate_settings(settings)
+
+
+def test_settings_accepts_headed_playwright(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORG_AGENT_PLAYWRIGHT_HEADLESS", "false")
+    monkeypatch.setenv("ORG_AGENT_PLAYWRIGHT_SLOW_MO", "300")
+
+    settings = Settings()
+
+    assert settings.playwright_headless is False
+    assert settings.playwright_slow_mo == 300
 
 
 def test_settings_rejects_blank_required_values(monkeypatch, tmp_path: Path) -> None:

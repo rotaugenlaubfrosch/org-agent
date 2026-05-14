@@ -1,4 +1,4 @@
-from org_agent.models import DerivationEntry, OrganizationProfile
+from org_agent.models import EvidenceEntry, OrganizationProfile
 
 
 def test_organization_profile_accepts_expected_fields() -> None:
@@ -14,17 +14,15 @@ def test_organization_profile_accepts_expected_fields() -> None:
         email="info@example.com",
         country="United States",
         region="California",
-        derivation=[
-            DerivationEntry(
+        evidence=[
+            EvidenceEntry(
                 field="website",
                 value="https://example.com",
                 source="search",
                 reasoning="Selected as likely official website.",
-                confidence=0.8,
             )
         ],
-        confidence=0.7,
     )
 
     assert profile.name == "Example Ltd"
-    assert profile.derivation[0].field == "website"
+    assert profile.evidence[0].field == "website"
