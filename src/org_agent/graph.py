@@ -159,7 +159,7 @@ def build_graph(
             return state
         cached_links = state.candidate_link_cache.get(state.current_page.url)
         if cached_links is not None:
-            state.candidate_links = cached_links
+            state.candidate_links = _merge_carried_candidate_links(cached_links, state)
             _report_candidate_links(progress, state.current_page.url, state.candidate_links, len(state.raw_links))
             return state
         state.candidate_links = filter_candidate_links(
@@ -174,6 +174,7 @@ def build_graph(
             state.candidate_links,
             progress,
         )
+        state.candidate_links = _merge_carried_candidate_links(state.candidate_links, state)
         state.candidate_link_cache[state.current_page.url] = state.candidate_links
         _report_candidate_links(progress, state.current_page.url, state.candidate_links, len(state.raw_links))
         return state
@@ -295,6 +296,7 @@ def build_graph(
         )
         if state.next_url_decision.should_crawl:
             if _queue_selected_url(state, state.next_url_decision.selected_url, settings, progress):
+                _carry_unselected_links(state, state.next_url_decision.selected_url)
                 report(progress, "route", f"Next URL selected: {state.next_url_decision.selected_url}")
             else:
                 state.next_url_decision.should_crawl = False
@@ -691,6 +693,38 @@ def _normalize_requested_url(url: str | None, links: list[WebsiteLink]) -> str |
     if normalized.startswith("/"):
         return next((link.url for link in links if urlparse(link.url).path == normalized), None)
     return None
+
+
+def _merge_carried_candidate_links(
+    links: list[WebsiteLink],
+    state: AgentState,
+    limit: int = 8,
+) -> list[WebsiteLink]:
+    merged: dict[str, WebsiteLink] = {}
+    blocked = state.visited_urls | state.queued_urls
+    for link in [*links, *state.carried_candidate_links]:
+        if link.url in blocked:
+            continue
+        merged.setdefault(link.url, link)
+        if len(merged) >= limit:
+            break
+    result = list(merged.values())
+    state.carried_candidate_links = [link for link in state.carried_candidate_links if link.url in {l.url for l in result}]
+    return result
+
+
+def _carry_unselected_links(state: AgentState, selected_url: str | None, limit: int = 8) -> None:
+    normalized_selected = without_fragment(selected_url) if selected_url else None
+    carried: dict[str, WebsiteLink] = {}
+    blocked = state.visited_urls | state.queued_urls
+    for link in [*state.candidate_links, *state.carried_candidate_links]:
+        normalized_url = without_fragment(link.url)
+        if normalized_url == normalized_selected or link.url in blocked:
+            continue
+        carried.setdefault(link.url, link)
+        if len(carried) >= limit:
+            break
+    state.carried_candidate_links = list(carried.values())
 
 
 def _queue_selected_url(

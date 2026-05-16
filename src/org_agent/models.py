@@ -204,6 +204,7 @@ class AgentState(BaseModel):
     current_crawl_depth: int = 0
     raw_links: list[WebsiteLink] = Field(default_factory=list)
     candidate_links: list[WebsiteLink] = Field(default_factory=list)
+    carried_candidate_links: list[WebsiteLink] = Field(default_factory=list)
     page_cache: dict[str, WebsitePage] = Field(default_factory=dict)
     raw_link_cache: dict[str, list[WebsiteLink]] = Field(default_factory=dict)
     candidate_link_cache: dict[str, list[WebsiteLink]] = Field(default_factory=dict)
