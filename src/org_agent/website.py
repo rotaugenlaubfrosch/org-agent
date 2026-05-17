@@ -1,179 +1,147 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from urllib.parse import urldefrag, urlparse
 
 from playwright.async_api import async_playwright
 from rich.markup import escape
 
-from org_agent.models import WebsitePage
+from org_agent.models import CrawlNode, WebsiteLink, WebsitePage
 from org_agent.progress import ProgressCallback, report
 
-
-LINK_KEYWORDS = (
-    "about",
-    "about-us",
-    "contact",
-    "contacts",
-    "impressum",
-    "imprint",
-    "legal",
-    "privacy",
-    "datenschutz",
-    "kontakt",
-    "ueber-uns",
-    "uber-uns",
-)
-HIGH_VALUE_KEYWORDS = (
-    "contact",
-    "contacts",
-    "impressum",
-    "imprint",
-    "legal notice",
-    "kontakt",
-)
-EXCLUDED_LINK_PARTS = (
+NOISE_LINK_PARTS = (
     "/account",
     "/cart",
     "/checkout",
     "/login",
+    "/password",
     "/profile",
-    "returnurl=",
+    "/register",
+    "/shop",
+    "/shop/produkt",
+    "/shop/product",
+    "advocate",
     "facebook.com",
     "instagram.com",
     "linkedin.com",
+    "promotionid=",
+    "returnurl=",
     "tiktok.com",
+    "twitter.com",
     "youtube.com",
+)
+INFORMATION_LINK_SIGNALS = (
+    "about",
+    "agb",
+    "allgemeine geschäftsbedingungen",
+    "company",
+    "consumer service",
+    "contact",
+    "datenschutz",
+    "datenschutzerklärung",
+    "impressum",
+    "imprint",
+    "kontakt",
+    "legal",
+    "legal notice",
+    "privacy",
+    "story",
+    "unternehmen",
+    "ueber",
+    "uber",
+    "über",
+)
+NOISE_EXTENSIONS = (
+    ".avi",
+    ".css",
+    ".gif",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".js",
+    ".mp3",
+    ".mp4",
+    ".png",
+    ".svg",
+    ".webp",
+    ".zip",
 )
 
 
-@dataclass(frozen=True)
-class LinkCandidate:
-    url: str
-    text: str
-    score: int
-
-
-@dataclass(frozen=True)
-class CrawlTarget:
-    url: str
-    depth: int
-    node_id: int
-
-
-@dataclass
-class CrawlNode:
-    id: int
-    parent_id: int | None
-    requested_url: str
-    label: str
-    depth: int
-    score: int | None = None
-    final_url: str | None = None
-    status: str = "queued"
-    reason: str | None = None
-    char_count: int | None = None
-
-
-async def crawl_website(
-    website: str,
-    max_pages: int = 6,
-    max_depth: int = 2,
+async def fetch_page_with_playwright(
+    url: str,
     headless: bool = True,
     slow_mo: int = 0,
     progress: ProgressCallback | None = None,
-) -> list[WebsitePage]:
-    normalized = _normalize_url(website)
-    pages: list[WebsitePage] = []
-    attempted: set[str] = set()
-    captured: set[str] = set()
-    queued: set[str] = {normalized}
-    nodes: dict[int, CrawlNode] = {
-        0: CrawlNode(id=0, parent_id=None, requested_url=normalized, label="root", depth=0)
-    }
-    candidates = [CrawlTarget(url=normalized, depth=0, node_id=0)]
-    next_node_id = 1
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=headless, slow_mo=slow_mo)
-        context = await browser.new_context(ignore_https_errors=True)
-        page = await context.new_page()
-
-        index = 0
-        while index < len(candidates):
-            target = candidates[index]
-            index += 1
-            url = target.url
-            node = nodes[target.node_id]
-
-            if len(pages) >= max_pages:
-                break
-            if url in attempted:
-                node.status = "skipped"
-                node.reason = "already attempted"
-                continue
-            attempted.add(url)
+) -> tuple[WebsitePage | None, list[WebsiteLink], str | None]:
+    try:
+        report(progress, "website", f"Checking: {url}")
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=headless, slow_mo=slow_mo)
+            context = await browser.new_context(ignore_https_errors=True)
+            page = await context.new_page()
             try:
-                report(progress, "website", f"Checking: {url}")
-                await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                await page.goto(_normalize_url(url), wait_until="domcontentloaded", timeout=15000)
                 await _settle_page(page)
                 final_url = _without_fragment(page.url)
-                node.final_url = final_url
-                if final_url in captured:
-                    node.status = "skipped"
-                    node.reason = f"redirected to already captured {final_url}"
-                    continue
                 title = await page.title()
                 text = await page.locator("body").inner_text(timeout=5000)
                 cleaned = "\n".join(line.strip() for line in text.splitlines() if line.strip())
-                if cleaned:
-                    captured.add(final_url)
-                    node.status = "captured"
-                    node.char_count = len(cleaned)
-                    pages.append(WebsitePage(url=final_url, title=title or None, text=cleaned[:12000]))
-                    links = await _ranked_links(page, normalized, final_url)
-                    if target.depth >= max_depth:
-                        continue
-                    queued_count = 0
-                    for link in links:
-                        if link.url in attempted or link.url in queued:
-                            continue
-                        nodes[next_node_id] = CrawlNode(
-                            id=next_node_id,
-                            parent_id=node.id,
-                            requested_url=link.url,
-                            label=link.text,
-                            depth=target.depth + 1,
-                            score=link.score,
-                        )
-                        candidates.append(
-                            CrawlTarget(
-                                url=link.url,
-                                depth=target.depth + 1,
-                                node_id=next_node_id,
-                            )
-                        )
-                        queued.add(link.url)
-                        queued_count += 1
-                        next_node_id += 1
-                else:
-                    node.status = "skipped"
-                    node.reason = "page body was empty"
-            except Exception:
-                node.status = "skipped"
-                node.reason = "page could not be loaded"
-                continue
+                links = await _extract_links(page)
+            finally:
+                await context.close()
+                await browser.close()
+    except Exception as exc:  # noqa: BLE001 - caller stores this as crawl node reason
+        return None, [], f"page could not be loaded: {exc}"
 
-        await context.close()
-        await browser.close()
+    if not cleaned:
+        return None, links, "page body was empty"
 
-    _report_crawl_tree(nodes, progress)
-    return pages
+    return WebsitePage(url=final_url, title=title or None, text=cleaned[:12000]), links, None
 
 
-def _normalize_url(website: str) -> str:
-    if not website.startswith(("http://", "https://")):
-        return f"https://{website}"
-    return website
+def filter_candidate_links(
+    links: list[WebsiteLink],
+    root_url: str,
+    current_url: str,
+) -> list[WebsiteLink]:
+    candidates: dict[str, WebsiteLink] = {}
+    for link in links:
+        url = _without_fragment(link.url)
+        haystack = f"{url.lower()} {link.text.lower()}"
+        if not url.startswith(("http://", "https://")):
+            continue
+        if any(part in haystack for part in NOISE_LINK_PARTS):
+            continue
+        if urlparse(url).path.lower().endswith(NOISE_EXTENSIONS):
+            continue
+        if not _has_information_signal(link):
+            continue
+        if not (_same_site(root_url, url) or _same_site(current_url, url) or _looks_official_external(link)):
+            continue
+        candidates.setdefault(url, WebsiteLink(url=url, text=link.text, area=link.area))
+    return list(candidates.values())
+
+
+def normalize_url(url: str) -> str:
+    return _normalize_url(url)
+
+
+def without_fragment(url: str) -> str:
+    return _without_fragment(url)
+
+
+def report_crawl_tree(nodes: list[CrawlNode], progress: ProgressCallback | None) -> None:
+    if progress is None:
+        return
+
+    children: dict[int | None, list[CrawlNode]] = {}
+    for node in nodes:
+        children.setdefault(node.parent_id, []).append(node)
+
+    input_count = sum(1 for node in nodes if node.status == "captured")
+    report(progress, "website", f"Crawl tree: {input_count} page(s) selected as LLM input")
+    for root in children.get(None, []):
+        _report_node(root, children, progress, prefix="", is_last=True)
 
 
 async def _settle_page(page) -> None:
@@ -197,7 +165,7 @@ async def _settle_page(page) -> None:
     )
 
 
-async def _ranked_links(page, root_url: str, current_url: str) -> list[LinkCandidate]:
+async def _extract_links(page) -> list[WebsiteLink]:
     links = await page.locator("a[href]").evaluate_all(
         """
         anchors => anchors.map(anchor => ({
@@ -208,51 +176,23 @@ async def _ranked_links(page, root_url: str, current_url: str) -> list[LinkCandi
         }))
         """
     )
-    candidates: dict[str, LinkCandidate] = {}
+    candidates: dict[str, WebsiteLink] = {}
     for link in links:
         href = _without_fragment(str(link.get("href", "")))
         text = " ".join(str(link.get("text", "")).split()) or "(no_link_text)"
         area = str(link.get("area", "body"))
-        if not href.startswith(("http://", "https://")):
-            continue
-        score = _score_link(href=href, text=text, area=area)
-        if score <= 0:
-            continue
-        is_same_site = _same_site(root_url, href) or _same_site(current_url, href)
-        is_relevant_external = score >= 6 and _has_high_value_signal(href, text)
-        if not is_same_site and not is_relevant_external:
-            continue
-        current = candidates.get(href)
-        candidate = LinkCandidate(url=href, text=text, score=score)
-        if current is None or candidate.score > current.score:
-            candidates[href] = candidate
-    return sorted(candidates.values(), key=lambda candidate: candidate.score, reverse=True)
+        if href.startswith(("http://", "https://")):
+            candidates.setdefault(href, WebsiteLink(url=href, text=text, area=area))
+    return list(candidates.values())
 
 
-def _score_link(href: str, text: str, area: str = "body") -> int:
-    haystack = f"{href.lower()} {text.lower()}"
-    if any(part in haystack for part in EXCLUDED_LINK_PARTS):
-        return 0
-
-    score = 0
-    for keyword in LINK_KEYWORDS:
-        if keyword in haystack:
-            score += 2
-    for keyword in HIGH_VALUE_KEYWORDS:
-        if keyword in haystack:
-            score += 2
-    if score == 0:
-        return 0
-    if area == "navigation":
-        score += 1
-    if urlparse(href).path in {"", "/"}:
-        score -= 2
-    return max(score, 0)
+def _looks_official_external(link: WebsiteLink) -> bool:
+    return _has_information_signal(link)
 
 
-def _has_high_value_signal(href: str, text: str) -> bool:
-    haystack = f"{href.lower()} {text.lower()}"
-    return any(keyword in haystack for keyword in HIGH_VALUE_KEYWORDS)
+def _has_information_signal(link: WebsiteLink) -> bool:
+    haystack = f"{link.url.lower()} {link.text.lower()}"
+    return any(keyword in haystack for keyword in INFORMATION_LINK_SIGNALS)
 
 
 def _same_site(left: str, right: str) -> bool:
@@ -261,22 +201,14 @@ def _same_site(left: str, right: str) -> bool:
     return left_host == right_host
 
 
+def _normalize_url(url: str) -> str:
+    if not url.startswith(("http://", "https://")):
+        return f"https://{url}"
+    return url
+
+
 def _without_fragment(url: str) -> str:
     return urldefrag(url).url
-
-
-def _report_crawl_tree(nodes: dict[int, CrawlNode], progress: ProgressCallback | None) -> None:
-    if progress is None:
-        return
-
-    children: dict[int | None, list[CrawlNode]] = {}
-    for node in nodes.values():
-        children.setdefault(node.parent_id, []).append(node)
-
-    input_count = sum(1 for node in nodes.values() if node.status == "captured")
-    report(progress, "website", f"Crawl tree: {input_count} page(s) selected as LLM input")
-    for root in children.get(None, []):
-        _report_node(root, children, progress, prefix="", is_last=True)
 
 
 def _report_node(
