@@ -210,6 +210,14 @@ def build_graph(
             report(progress, "orchestrator", state.orchestrator_decision.reasoning)
             return state
 
+        if state.pending_urls:
+            state.orchestrator_decision = OrchestratorDecision(
+                action="crawl_page",
+                reasoning="Crawling queued URL selected for a missing field.",
+            )
+            report(progress, "orchestrator", state.orchestrator_decision.reasoning)
+            return state
+
         if state.field_tasks:
             state.current_field_task = _pop_next_field_task(state)
             if state.current_field_task is None:
@@ -296,6 +304,7 @@ def build_graph(
         )
         if state.next_url_decision.should_crawl:
             if _queue_selected_url(state, state.next_url_decision.selected_url, settings, progress):
+                state.field_extraction = None
                 _carry_unselected_links(state, state.next_url_decision.selected_url)
                 report(progress, "route", f"Next URL selected: {state.next_url_decision.selected_url}")
             else:
@@ -399,9 +408,9 @@ async def _filter_links_with_llm(
         "Prefer contact/kontakt, consumer service, impressum/imprint/legal/agb, about/company/unternehmen/story pages.\n"
         "Do not select shop, product, campaign, login, social, or media links.\n"
         "Only select URLs from candidate_links. Do not invent URLs.\n\n"
-        f"{parser.get_format_instructions()}\n\n"
-        f"Current page URL: {current_page.url}\n"
-        f"Current page title: {current_page.title}\n\n"
+        #f"{parser.get_format_instructions()}\n\n"
+        #f"Current page URL: {current_page.url}\n"
+        #f"Current page title: {current_page.title}\n\n"
         f"Candidate links:\n{json.dumps(available_links, ensure_ascii=False, indent=2)}"
     )
     messages = [
@@ -440,21 +449,21 @@ async def _select_next_url(
     available_links = [link.model_dump() for link in candidate_links[:80]]
     prompt = (
         "You choose the next website link to crawl for one missing organization field.\n"
-        f"The missing field task is: {field_task}.\n"
+        f"The missing field task is: {field_task} of {organization_name}.\n"
         "Your only job is link selection. Do not extract profile fields.\n"
         "Choose should_crawl=false if no candidate link is likely to contain this field.\n"
         "If should_crawl=true, select exactly one URL from candidate_links. Do not invent URLs.\n"
         "Prefer contact/kontakt pages for address, phone, or email; impressum/imprint/legal/agb pages "
         "for legal form or registration ID; and about/company/unternehmen/story pages for industry or description.\n\n"
-        f"{parser.get_format_instructions()}\n\n"
+        #f"{parser.get_format_instructions()}\n\n"
         f"Organization name: {organization_name}\n\n"
         f"Missing field task: {field_task}\n\n"
-        f"Current profile:\n{profile.model_dump_json(indent=2)}\n\n"
-        f"Missing fields:\n{json.dumps(_missing_fields(profile), ensure_ascii=False, indent=2)}\n\n"
-        f"Current page URL: {current_page.url}\n"
-        f"Current page title: {current_page.title}\n\n"
+        #f"Current profile:\n{profile.model_dump_json(indent=2)}\n\n"
+        #f"Missing fields:\n{json.dumps(_missing_fields(profile), ensure_ascii=False, indent=2)}\n\n"
+        #f"Current page URL: {current_page.url}\n"
+        #f"Current page title: {current_page.title}\n\n"
         f"Visited URLs:\n{json.dumps(sorted(visited_urls), ensure_ascii=False, indent=2)}\n\n"
-        f"Crawl limits: max_pages={crawl_max_pages}, max_depth={crawl_max_depth}, current_depth={current_depth}\n\n"
+        #f"Crawl limits: max_pages={crawl_max_pages}, max_depth={crawl_max_depth}, current_depth={current_depth}\n\n"
         f"Candidate links:\n{json.dumps(available_links, ensure_ascii=False, indent=2)}"
     )
     messages = [
@@ -490,14 +499,13 @@ async def _extract_field_info(
         f"Target information: {target}.\n"
         f"Rule: {rule}\n"
         "Use only the current page text. Do not guess. Do not extract unrelated information.\n"
-        "Ignore navigation menus, language selectors, product categories, login/register labels, cookie text, and generic footer noise.\n"
         "If the target information is present, set found=true and fill only the matching fields in profile_patch. "
         "Use the current page URL as evidence source and write one short evidence sentence.\n"
         "If the target information is not present, set found=false, leave profile_patch empty, and return no evidence.\n\n"
-        f"{parser.get_format_instructions()}\n\n"
+        #f"{parser.get_format_instructions()}\n\n"
         f"Organization name: {organization_name}\n\n"
-        f"Current page URL: {current_page.url}\n"
-        f"Current page title: {current_page.title}\n\n"
+        #f"Current page URL: {current_page.url}\n"
+        #f"Current page title: {current_page.title}\n\n"
         f"Current page text:\n{current_page.text}"
     )
     messages = [
@@ -514,6 +522,7 @@ async def _extract_field_info(
         extraction = await _retry_json_parse(llm, parser, messages)
     extraction.field_task = field_task
     extraction.requested_url = None
+    _normalize_field_extraction(extraction)
     _report_llm_response(progress, f"field_extractor:{field_task}", extraction.model_dump())
     return extraction
 
@@ -567,7 +576,7 @@ def _field_task_prompt(field_task: str) -> tuple[str, str]:
     if field_task == "address":
         return (
             "company physical address, plus country and region if stated",
-            "A valid address must include a street, postal code, city, PO box, or equivalent physical location. Menu labels are not an address.",
+            "A valid address must include a street, postal code, city, PO box, or equivalent physical location. For instance, Industriestrasse 123, 6300 Zug, or 4073 Kelly Street, Deep River, Connecticut.",
         )
     if field_task == "phone":
         return (
@@ -595,6 +604,28 @@ def _field_task_prompt(field_task: str) -> tuple[str, str]:
             "Return a neutral industry label and a short factual description without marketing language.",
         )
     return (field_task, "Extract only the requested information if it is explicitly present.")
+
+
+def _normalize_field_extraction(extraction: FieldExtraction) -> None:
+    if _field_task_patch_has_value(extraction.field_task, extraction.profile_patch):
+        extraction.found = True
+        return
+    if not extraction.found:
+        extraction.profile_patch = OrganizationProfilePatch()
+        extraction.evidence = []
+
+
+def _field_task_patch_has_value(field_task: str, patch: OrganizationProfilePatch) -> bool:
+    fields_by_task = {
+        "address": ("address",),
+        "phone": ("phone",),
+        "email": ("email",),
+        "legal": ("name", "legal_form"),
+        "registration_id": ("registration_id",),
+        "industry": ("industry", "description"),
+    }
+    fields = fields_by_task.get(field_task, (field_task,))
+    return any(getattr(patch, field, None) not in {None, ""} for field in fields)
 
 
 def _merge_profile_patch(profile: OrganizationProfile, patch: OrganizationProfilePatch) -> None:
