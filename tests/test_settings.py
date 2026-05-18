@@ -31,6 +31,8 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path)
     monkeypatch.setenv("ORG_AGENT_LLM_MODEL", "llama3.1")
     monkeypatch.setenv("ORG_AGENT_OLLAMA_BASE_URL", "http://ollama.local:11434")
     monkeypatch.delenv("ORG_AGENT_REQUEST_TIMEOUT", raising=False)
+    monkeypatch.delenv("ORG_AGENT_CRAWL_LOG_ENABLED", raising=False)
+    monkeypatch.delenv("ORG_AGENT_CRAWL_LOG_DIR", raising=False)
     monkeypatch.delenv("ORG_AGENT_PLAYWRIGHT_HEADLESS", raising=False)
     monkeypatch.delenv("ORG_AGENT_PLAYWRIGHT_SLOW_MO", raising=False)
 
@@ -40,6 +42,8 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path)
     assert settings.request_timeout == 20.0
     assert settings.crawl_max_pages == 6
     assert settings.crawl_max_depth == 2
+    assert settings.crawl_log_enabled is True
+    assert settings.crawl_log_dir is None
     assert settings.playwright_headless is True
     assert settings.playwright_slow_mo == 0
     validate_settings(settings)
@@ -54,6 +58,24 @@ def test_settings_accepts_headed_playwright(monkeypatch, tmp_path: Path) -> None
 
     assert settings.playwright_headless is False
     assert settings.playwright_slow_mo == 300
+
+
+def test_settings_accepts_crawl_log_dir(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORG_AGENT_CRAWL_LOG_DIR", "logs")
+
+    settings = Settings()
+
+    assert settings.crawl_log_dir == "logs"
+
+
+def test_settings_accepts_disabled_crawl_logging(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORG_AGENT_CRAWL_LOG_ENABLED", "false")
+
+    settings = Settings()
+
+    assert settings.crawl_log_enabled is False
 
 
 def test_settings_rejects_blank_required_values(monkeypatch, tmp_path: Path) -> None:

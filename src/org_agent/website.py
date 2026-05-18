@@ -96,7 +96,7 @@ async def fetch_page_with_playwright(
     if not cleaned:
         return None, links, "page body was empty"
 
-    return WebsitePage(url=final_url, title=title or None, text=cleaned[:12000]), links, None
+    return WebsitePage(url=final_url, title=title or None, text=cleaned[:20000]), links, None
 
 
 def filter_candidate_links(

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import UTC, datetime
+from pathlib import Path
 
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -187,8 +190,6 @@ def build_graph(
             llm,
             crawl_decision_parser,
             state.input.name,
-            state.profile,
-            extraction.missing_fields,
             state.candidate_links,
             progress,
         )
@@ -241,6 +242,7 @@ def build_graph(
         state.profile.name = state.input.name
         if state.website and not state.profile.website:
             state.profile.website = state.website
+        _write_crawl_text_logs(state, settings, progress)
         for error in state.errors:
             state.profile.evidence.append(
                 EvidenceEntry(field="general", value=None, source="agent", reasoning=error)
@@ -340,25 +342,19 @@ async def _select_next_links(
     llm: BaseChatModel,
     parser: PydanticOutputParser,
     organization_name: str,
-    profile: OrganizationProfile,
-    missing_fields: list[str],
     candidate_links: list[WebsiteLink],
     progress: ProgressCallback | None,
 ) -> CrawlDecision:
     available_links = [link.model_dump() for link in candidate_links[:80]]
     prompt = (
-        "You are deciding which website links to follow next while building an organization profile.\n"
-        "Decide:\n"
-        "1. Is the profile complete enough to stop? A good stopping point has: website, description, "
-        "industry, and at least one of address, email, or phone. Do not keep crawling just because "
-        "registration_id or legal_form is missing.\n"
-        "2. If not complete, select up to 3 URLs most likely to fill the missing fields. "
-        "Prefer contact, imprint/legal, about/company, privacy, or registration pages.\n"
-        "3. Never invent URLs. Only select from the candidate links.\n\n"
-        f"{parser.get_format_instructions()}\n\n"
+        "You are choosing website links to visit while collecting company information.\n"
+        "Select up to 3 URLs most likely to contain factual company or organization data, "
+        "such as about/company details, contact information, legal/imprint information, "
+        "privacy information, registration details, address, email, or phone.\n"
+        "Only select URLs from the candidate links. Do not invent URLs.\n"
+        "If no candidate link looks useful, return no selected URLs and set is_complete to true; "
+        "otherwise set is_complete to false.\n\n"
         f"Organization: {organization_name}\n\n"
-        f"Current profile:\n{profile.model_dump_json(indent=2)}\n\n"
-        f"Missing fields: {', '.join(missing_fields) if missing_fields else 'none'}\n\n"
         f"Candidate links:\n{json.dumps(available_links, ensure_ascii=False, indent=2)}"
     )
     messages = [
@@ -415,6 +411,42 @@ def _extend_evidence_dedup(existing: list[EvidenceEntry], incoming: list[Evidenc
     for entry in incoming:
         if entry.value is not None and (entry.field, entry.value) not in known:
             existing.append(entry)
+
+
+def _write_crawl_text_logs(
+    state: AgentState,
+    settings: Settings,
+    progress: ProgressCallback | None,
+) -> None:
+    if not settings.crawl_log_enabled or not settings.crawl_log_dir or not state.website_pages:
+        return
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    run_dir = Path(settings.crawl_log_dir) / f"{timestamp}-{_slugify(state.input.name)}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    for index, page in enumerate(state.website_pages, start=1):
+        page_slug = _slugify(page.title or page.url)
+        page_path = run_dir / f"{index:03d}-{page_slug}.txt"
+        page_path.write_text(_format_page_log(page), encoding="utf-8")
+
+    report(progress, "website", f"Saved crawl text logs to {run_dir}")
+
+
+def _format_page_log(page: WebsitePage) -> str:
+    title = page.title or ""
+    return (
+        f"URL: {page.url}\n"
+        f"Title: {title}\n"
+        f"Chars: {len(page.text)}\n"
+        "\n"
+        f"{page.text}\n"
+    )
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value).strip("-").lower()
+    return slug[:80] or "page"
 
 
 def _should_continue_crawl(state: AgentState, settings: Settings) -> bool:
