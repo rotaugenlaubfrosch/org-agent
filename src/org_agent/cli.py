@@ -170,9 +170,6 @@ def _make_progress_logger():
         "registry": "yellow",
         "website": "green",
         "extract": "bright_magenta",
-        "orchestrator": "bright_blue",
-        "llm": "bright_black",
-        "route": "bright_cyan",
     }
 
     def log(step: str, message: str) -> None:
