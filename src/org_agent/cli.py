@@ -160,9 +160,11 @@ def _print_profile(profile: OrganizationProfile) -> None:
 
     lines = []
     for entry in profile.evidence:
-        source = f" Source: {entry.source}." if entry.source else ""
-        value = f" Value: {entry.value}." if entry.value else ""
-        lines.append(f"[bold]{entry.field}[/bold]:{value}{source} {entry.reasoning}")
+        parts = []
+        if entry.source:
+            parts.append(f"Source: {entry.source}.")
+        parts.append(entry.reasoning)
+        lines.append(f"[bold]{entry.field}[/bold]: {' '.join(parts)}")
     console.print(Panel("\n".join(lines) or "No evidence entries returned.", title="Evidence"))
 
 
