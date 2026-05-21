@@ -12,11 +12,12 @@ async def lookup_organization_async(
     name: str,
     website: str | None = None,
     config: str | None = None,
+    registries: list[str] | None = None,
     progress: ProgressCallback | None = None,
 ) -> OrganizationProfile:
     settings = Settings()
-    validate_settings(settings)
-    app_config = load_app_config(config)
+    validate_settings(settings, selected_registries=registries)
+    app_config = load_app_config(config, selected_registries=registries)
     has_registry = any(registry.enabled for registry in app_config.registries)
     has_search = (settings.search_provider or "").lower().strip() not in {"", "none", "disabled"}
     report(progress, "config", f"LLM provider: {settings.llm_provider} ({settings.llm_model})")
@@ -35,8 +36,15 @@ def lookup_organization(
     name: str,
     website: str | None = None,
     config: str | None = None,
+    registries: list[str] | None = None,
     progress: ProgressCallback | None = None,
 ) -> OrganizationProfile:
     return asyncio.run(
-        lookup_organization_async(name=name, website=website, config=config, progress=progress)
+        lookup_organization_async(
+            name=name,
+            website=website,
+            config=config,
+            registries=registries,
+            progress=progress,
+        )
     )

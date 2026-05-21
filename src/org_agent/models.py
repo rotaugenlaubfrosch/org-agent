@@ -22,7 +22,9 @@ class OrganizationProfile(BaseModel):
         default=None,
         description="Short factual structural description without advertising language.",
     )
+    purpose: str | None = None
     address: str | None = None
+    legal_address: str | None = None
     phone: str | None = None
     email: str | None = None
     country: str | None = None
@@ -37,7 +39,9 @@ class OrganizationProfilePatch(BaseModel):
     legal_form: str | None = None
     industry: str | None = None
     description: str | None = None
+    purpose: str | None = None
     address: str | None = None
+    legal_address: str | None = None
     phone: str | None = None
     email: str | None = None
     country: str | None = None
@@ -57,6 +61,7 @@ class SearchResult(BaseModel):
 
 class RegistryEndpointConfig(BaseModel):
     name: str
+    provider: str | None = None
     base_url: str
     method: Literal["GET", "POST"] = "GET"
     query_param: str = "q"
@@ -76,6 +81,8 @@ class RegistryResult(BaseModel):
     url: str
     status_code: int
     content: str
+    profile_patch: OrganizationProfilePatch = Field(default_factory=OrganizationProfilePatch)
+    evidence: list[EvidenceEntry] = Field(default_factory=list)
 
 
 class WebsitePage(BaseModel):

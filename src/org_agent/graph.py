@@ -108,6 +108,10 @@ def build_graph(
             settings.request_timeout,
             progress=progress,
         )
+        if state.profile is not None:
+            for result in state.registry_results:
+                _merge_profile_patch(state.profile, result.profile_patch)
+                _extend_evidence_dedup(state.profile.evidence, result.evidence)
         report(progress, "registry", f"Collected {len(state.registry_results)} registry result(s).")
         return state
 

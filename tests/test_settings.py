@@ -99,3 +99,25 @@ def test_settings_requires_ollama_model_and_url(monkeypatch, tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="ORG_AGENT_LLM_MODEL"):
         validate_settings(settings)
+
+
+def test_validate_settings_requires_zefix_credentials_when_selected(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORG_AGENT_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("ORG_AGENT_LLM_MODEL", "llama3.1")
+    monkeypatch.setenv("ORG_AGENT_OLLAMA_BASE_URL", "http://localhost:11434")
+    monkeypatch.delenv("ORG_AGENT_ZEFIX_USERNAME", raising=False)
+    monkeypatch.delenv("ORG_AGENT_ZEFIX_PASSWORD", raising=False)
+
+    settings = Settings()
+
+    with pytest.raises(ValueError, match="ORG_AGENT_ZEFIX_USERNAME"):
+        validate_settings(settings, selected_registries=["zefix"])
+
+
+def test_load_app_config_adds_selected_zefix_registry() -> None:
+    config = load_app_config(None, selected_registries=["zefix"])
+
+    assert len(config.registries) == 1
+    assert config.registries[0].name == "zefix"
+    assert config.registries[0].provider == "zefix"
