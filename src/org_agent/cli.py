@@ -35,6 +35,7 @@ ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
 Common lookup options:
   --website <url>  Use a known official website
+  --registry <id>  Enable optional registry provider (e.g. zefix)
   --json           Print raw JSON output
   --quiet          Suppress progress output
 
@@ -71,6 +72,11 @@ def lookup(
         "--config",
         "-c",
         help="Optional registry YAML config with endpoints to query before extraction.",
+    ),
+    registries: list[str] = typer.Option(
+        [],
+        "--registry",
+        help="Enable optional registry provider(s), e.g. zefix. Repeatable.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON output."),
     quiet: bool = typer.Option(
@@ -110,13 +116,19 @@ def lookup(
     """
     try:
         if quiet:
-            profile = lookup_organization(name=name, website=website, config=config)
+            profile = lookup_organization(
+                name=name,
+                website=website,
+                config=config,
+                registries=registries,
+            )
         else:
             err_console.rule("[bold cyan]org-agent trace")
             profile = lookup_organization(
                 name=name,
                 website=website,
                 config=config,
+                registries=registries,
                 progress=_make_progress_logger(),
             )
             err_console.rule("[bold green]done")
@@ -143,7 +155,9 @@ def _print_profile(profile: OrganizationProfile) -> None:
         "legal_form",
         "industry",
         "description",
+        "purpose",
         "address",
+        "legal_address",
         "phone",
         "email",
         "country",

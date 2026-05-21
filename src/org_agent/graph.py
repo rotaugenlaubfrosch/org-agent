@@ -92,6 +92,10 @@ def build_graph(
             settings.request_timeout,
             progress=progress,
         )
+        if state.profile is not None:
+            for result in state.registry_results:
+                _merge_profile_patch(state.profile, result.profile_patch)
+                _extend_evidence_dedup(state.profile.evidence, result.evidence)
         report(progress, "registry", f"Collected {len(state.registry_results)} registry result(s).")
         return state
 
@@ -308,7 +312,8 @@ async def _extract_page_info(
     prompt = (
         "You are extracting factual information about an organization from a website page.\n"
         "Target fields: name, website, registration_id, legal_form, industry, description, "
-        "address, phone, email, country, region.\n"
+        "purpose, address, legal_address, phone, email, country, region.\n"
+        "Use legal_address for official registry/legal seat addresses and address for website contact addresses.\n"
         "Only fill fields that are not already present in the partial profile. Use null for unknown fields.\n"
         "Write brief evidence entries for each extracted value. Use the page URL as the source. "
         "Write a one-sentence factual explanation as reasoning.\n"

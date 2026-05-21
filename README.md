@@ -43,6 +43,10 @@ ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
 ORG_AGENT_SEARCH_PROVIDER=tavily|brave|none
 ORG_AGENT_SEARCH_API_KEY=<search API key for tavily/brave>
 
+# Optional: Swiss company register (Zefix) credentials for --registry zefix
+ORG_AGENT_ZEFIX_USERNAME=<zefix username>
+ORG_AGENT_ZEFIX_PASSWORD=<zefix password>
+
 # Optional runtime environment variables:
 ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
 ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
@@ -59,6 +63,7 @@ Run `uv run org-agent` to show the help dashboard.
 Common lookup options:
 
 - `--website <url>`: use a known official website
+- `--registry <id>`: enable optional registry provider (currently `zefix`)
 - `--json`: print raw JSON output
 - `--quiet`: suppress progress output
 
@@ -88,7 +93,14 @@ Use a registry config:
 uv run org-agent lookup "Example Ltd" --config org-agent.yaml
 ```
 
+Use Zefix from CLI flags:
+
+```bash
+uv run org-agent lookup "Example Ltd" --registry zefix
+```
+
 Name-only lookup requires either a configured search provider or an enabled registry config. If neither is configured, provide `--website`.
+
 
 ## Search
 
@@ -213,7 +225,9 @@ The result is an `OrganizationProfile` with:
 - `legal_form`
 - `industry`
 - `description`
+- `purpose`
 - `address`
+- `legal_address`
 - `phone`
 - `email`
 - `country`
