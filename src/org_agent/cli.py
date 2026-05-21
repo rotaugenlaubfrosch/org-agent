@@ -30,6 +30,8 @@ Optional runtime environment variables:
 ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
 ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
 ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
+ORG_AGENT_CRAWL_LOG_ENABLED=<true|false, default true>
+ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, optional>
 ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
 ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
@@ -106,6 +108,8 @@ def lookup(
     ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
     ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
     ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
+    ORG_AGENT_CRAWL_LOG_ENABLED=<true|false, default true>
+    ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, optional>
     ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
     ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
@@ -170,9 +174,11 @@ def _print_profile(profile: OrganizationProfile) -> None:
 
     lines = []
     for entry in profile.evidence:
-        source = f" Source: {entry.source}." if entry.source else ""
-        value = f" Value: {entry.value}." if entry.value else ""
-        lines.append(f"[bold]{entry.field}[/bold]:{value}{source} {entry.reasoning}")
+        parts = []
+        if entry.source:
+            parts.append(f"Source: {entry.source}.")
+        parts.append(entry.reasoning)
+        lines.append(f"[bold]{entry.field}[/bold]: {' '.join(parts)}")
     console.print(Panel("\n".join(lines) or "No evidence entries returned.", title="Evidence"))
 
 

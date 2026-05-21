@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     request_timeout: float = Field(default=20.0, alias="ORG_AGENT_REQUEST_TIMEOUT")
     crawl_max_pages: int = Field(default=6, alias="ORG_AGENT_CRAWL_MAX_PAGES")
     crawl_max_depth: int = Field(default=2, alias="ORG_AGENT_CRAWL_MAX_DEPTH")
+    crawl_log_enabled: bool = Field(default=True, alias="ORG_AGENT_CRAWL_LOG_ENABLED")
+    crawl_log_dir: str | None = Field(default=None, alias="ORG_AGENT_CRAWL_LOG_DIR")
     playwright_headless: bool = Field(default=True, alias="ORG_AGENT_PLAYWRIGHT_HEADLESS")
     playwright_slow_mo: int = Field(default=0, alias="ORG_AGENT_PLAYWRIGHT_SLOW_MO")
 
@@ -40,6 +42,7 @@ class Settings(BaseSettings):
         "request_timeout",
         "crawl_max_pages",
         "crawl_max_depth",
+        "crawl_log_enabled",
         "playwright_headless",
         "playwright_slow_mo",
         mode="before",
@@ -52,6 +55,7 @@ class Settings(BaseSettings):
             "request_timeout": 20.0,
             "crawl_max_pages": 6,
             "crawl_max_depth": 2,
+            "crawl_log_enabled": True,
             "playwright_headless": True,
             "playwright_slow_mo": 0,
         }

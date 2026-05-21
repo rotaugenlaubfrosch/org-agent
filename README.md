@@ -51,6 +51,8 @@ ORG_AGENT_ZEFIX_PASSWORD=<zefix password>
 ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
 ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
 ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
+ORG_AGENT_CRAWL_LOG_ENABLED=<true|false, default true>
+ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, optional>
 ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
 ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 ```
@@ -136,7 +138,7 @@ The crawler:
 - asks the LLM which remaining candidate links should be visited next
 - repeats page-by-page up to the configured crawl limits
 
-The crawl uses a hybrid approach. Deterministic filtering removes obvious noise before the LLM sees the links, including shopping, account/login, product detail, recipe, campaign, social media, and static asset links. Candidate links must also contain an organization-information signal such as contact, imprint/legal, privacy, company/about, story, or terms. The LLM then receives the current page text, accumulated page evidence, registry evidence, the current partial profile, and the filtered candidate links. It returns a profile patch, evidence entries, missing fields, a stop/continue decision, and up to three actual discovered URLs to visit next. The crawler does not invent `/contact` or `/impressum` paths.
+The crawl uses a hybrid approach. Deterministic filtering removes obvious noise before the LLM sees the links, including shopping, account/login, product detail, campaign, social media, and static asset links. Candidate links must also contain an organization-information signal such as contact, imprint/legal, privacy, company/about, story, or terms. The LLM extracts profile data from the current page, then receives the filtered candidate links and selects up to three actual discovered URLs most likely to contain company information. The crawler does not invent `/contact` or `/impressum` paths.
 
 Default crawl limits:
 
@@ -144,6 +146,8 @@ Default crawl limits:
 ORG_AGENT_CRAWL_MAX_PAGES=6
 ORG_AGENT_CRAWL_MAX_DEPTH=2
 ```
+
+Set `ORG_AGENT_CRAWL_LOG_DIR=logs` to save captured page text. Each command execution creates a new timestamped subdirectory and writes one `.txt` file per captured web page. Set `ORG_AGENT_CRAWL_LOG_ENABLED=false` to disable this logging.
 
 To watch Playwright operate in a visible browser window, disable headless mode:
 
