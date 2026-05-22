@@ -114,7 +114,7 @@ async def _query_zefix(client: httpx.AsyncClient, name: str) -> RegistryResult:
     detail_response.raise_for_status()
     detail = detail_response.json()
 
-    patch = _build_zefix_profile_patch(detail)
+    patch = _build_zefix_profile_patch(detail, selected_name=best.get("name"))
     evidence = _build_zefix_evidence(patch, detail_url)
     content = json.dumps(
         {
@@ -144,10 +144,12 @@ def _pick_best_zefix_match(name: str, candidates: list[dict]) -> dict:
     return candidates[0]
 
 
-def _build_zefix_profile_patch(detail: dict) -> OrganizationProfilePatch:
+def _build_zefix_profile_patch(detail: dict, selected_name: str | None = None) -> OrganizationProfilePatch:
     legal_form = _pick_legal_form(detail.get("legalForm") or {})
+    address = detail.get("address") or {}
     legal_address = _format_legal_address(detail.get("address") or {})
     return OrganizationProfilePatch(
+        official_company_name=detail.get("name") or selected_name or address.get("organisation"),
         registration_id=detail.get("uid"),
         legal_form=legal_form,
         purpose=detail.get("purpose"),
@@ -182,6 +184,7 @@ def _format_legal_address(address: dict) -> str | None:
 def _build_zefix_evidence(patch: OrganizationProfilePatch, source_url: str) -> list[EvidenceEntry]:
     evidence: list[EvidenceEntry] = []
     mappings = {
+        "official_company_name": patch.official_company_name,
         "registration_id": patch.registration_id,
         "purpose": patch.purpose,
         "legal_address": patch.legal_address,

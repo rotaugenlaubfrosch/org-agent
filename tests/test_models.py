@@ -4,6 +4,7 @@ from org_agent.models import EvidenceEntry, OrganizationProfile
 def test_organization_profile_accepts_expected_fields() -> None:
     profile = OrganizationProfile(
         name="Example Ltd",
+        official_company_name="Example Ltd Official",
         website="https://example.com",
         registration_id="12345",
         legal_form="Limited company",
@@ -27,6 +28,7 @@ def test_organization_profile_accepts_expected_fields() -> None:
     )
 
     assert profile.name == "Example Ltd"
+    assert profile.official_company_name == "Example Ltd Official"
     assert profile.purpose == "Develop and distribute software."
     assert profile.legal_address == "Registry Street 10"
     assert profile.evidence[0].field == "website"

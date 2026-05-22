@@ -42,6 +42,7 @@ from org_agent.website import (
 
 
 EXTRACTABLE_PROFILE_FIELDS = (
+    "official_company_name",
     "registration_id",
     "legal_form",
     "industry",
@@ -338,6 +339,8 @@ async def _extract_page_info(
         f"{formatted_fields}\n"
         "Do not extract, mention, or fill any fields that are not listed above. "
         "Use null for listed fields that are not present on the current page.\n"
+        "For official_company_name, extract the legal or formal company name as written "
+        "on the page, not merely the user query or a generic brand label.\n"
         "Write brief evidence entries for each extracted value. "
         "Write a one-sentence factual explanation as reasoning.\n"
         "Do not include advertising language in the description; write a factual summary.\n\n"

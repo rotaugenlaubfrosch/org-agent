@@ -14,6 +14,7 @@ class EvidenceEntry(BaseModel):
 
 class OrganizationProfile(BaseModel):
     name: str
+    official_company_name: str | None = None
     website: str | None = None
     registration_id: str | None = None
     legal_form: str | None = None
@@ -34,6 +35,7 @@ class OrganizationProfile(BaseModel):
 
 class OrganizationProfilePatch(BaseModel):
     name: str | None = None
+    official_company_name: str | None = None
     website: str | None = None
     registration_id: str | None = None
     legal_form: str | None = None

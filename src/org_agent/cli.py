@@ -154,6 +154,7 @@ def _print_profile(profile: OrganizationProfile) -> None:
 
     for field in (
         "name",
+        "official_company_name",
         "website",
         "registration_id",
         "legal_form",

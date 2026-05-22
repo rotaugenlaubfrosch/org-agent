@@ -11,6 +11,7 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     )
 
     assert _missing_profile_fields(profile) == [
+        "official_company_name",
         "registration_id",
         "legal_form",
         "description",
@@ -24,11 +25,17 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
 def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
     extraction = PageExtraction(
         profile_patch=OrganizationProfilePatch(
+            official_company_name="Example Ltd Official",
             industry="Software",
             address="Example Street 1",
             phone="+1 555 0100",
         ),
         evidence=[
+            EvidenceEntry(
+                field="official_company_name",
+                value="Example Ltd Official",
+                reasoning="Found on page.",
+            ),
             EvidenceEntry(field="industry", value="Software", reasoning="Found on page."),
             EvidenceEntry(field="address", value="Example Street 1", reasoning="Found on page."),
             EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found on page."),
@@ -40,6 +47,7 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
     _keep_requested_extraction_fields(extraction, ["address", "email"])
 
     assert extraction.profile_patch.industry is None
+    assert extraction.profile_patch.official_company_name is None
     assert extraction.profile_patch.address == "Example Street 1"
     assert extraction.profile_patch.phone is None
     assert [entry.field for entry in extraction.evidence] == ["address"]
