@@ -72,7 +72,7 @@ Common lookup options:
 Run with a known website:
 
 ```bash
-uv run org-agent lookup "Zweifel Chips & Snacks AG" --website https://zweifel.ch/
+uv run org-agent lookup "Example Ltd" --website https://example.com/
 ```
 
 Print JSON:
