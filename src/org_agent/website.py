@@ -84,7 +84,7 @@ async def fetch_page_with_playwright(
                 await _settle_page(page)
                 final_url = _without_fragment(page.url)
                 title = await page.title()
-                text = await page.locator("body").inner_text(timeout=5000)
+                text = await _extract_visible_text_with_contact_hrefs(page)
                 cleaned = "\n".join(line.strip() for line in text.splitlines() if line.strip())
                 links = await _extract_links(page)
             finally:
@@ -160,6 +160,67 @@ async def _settle_page(page) -> None:
             }
             window.scrollTo(0, 0);
             await delay(150);
+        }
+        """
+    )
+
+
+async def _extract_visible_text_with_contact_hrefs(page) -> str:
+    return await page.evaluate(
+        """
+        () => {
+            const blockTags = new Set([
+                'ADDRESS', 'ARTICLE', 'ASIDE', 'BR', 'DD', 'DIV', 'DL', 'DT', 'FIELDSET',
+                'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3', 'H4', 'H5',
+                'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'SECTION', 'TABLE',
+                'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'UL'
+            ]);
+
+            const decodeContactHref = href => {
+                if (!href) return null;
+                const lower = href.toLowerCase();
+                if (lower.startsWith('mailto:')) {
+                    return decodeURIComponent(href.slice(7).split('?')[0]).trim();
+                }
+                if (lower.startsWith('tel:')) {
+                    return decodeURIComponent(href.slice(4).split('?')[0]).trim();
+                }
+                return null;
+            };
+
+            const isHidden = element => {
+                const style = window.getComputedStyle(element);
+                return style.display === 'none' || style.visibility === 'hidden';
+            };
+
+            const walk = node => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    return node.textContent || '';
+                }
+                if (node.nodeType !== Node.ELEMENT_NODE) {
+                    return '';
+                }
+
+                const element = node;
+                if (isHidden(element)) {
+                    return '';
+                }
+
+                let text = Array.from(element.childNodes).map(walk).join('');
+                if (element.tagName === 'A') {
+                    const contact = decodeContactHref(element.getAttribute('href') || '');
+                    if (contact && !text.includes(contact)) {
+                        text = `${text} (${contact})`;
+                    }
+                }
+
+                if (blockTags.has(element.tagName)) {
+                    return `\n${text}\n`;
+                }
+                return text;
+            };
+
+            return walk(document.body || document.documentElement || document);
         }
         """
     )
