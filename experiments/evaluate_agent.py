@@ -14,9 +14,14 @@ from org_agent.api import lookup_organization
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare agent output against JSONL ground truth.")
     parser.add_argument("ground_truth", help="JSONL file with name, optional website, and expected fields")
+    parser.add_argument("index", nargs="?", type=int, help="Optional zero-based row index to evaluate")
     args = parser.parse_args()
 
     rows = _read_jsonl(Path(args.ground_truth))
+    if args.index is not None:
+        if args.index < 0 or args.index >= len(rows):
+            raise SystemExit(f"Index {args.index} out of range. Valid range: 0-{len(rows) - 1}")
+        rows = [rows[args.index]]
     console = Console()
 
     for row in tqdm(rows, desc="Evaluating", unit="case"):
