@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
+from tqdm import tqdm
+
+from org_agent.api import lookup_organization
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Compare agent output against JSONL ground truth.")
+    parser.add_argument("ground_truth", help="JSONL file with name, optional website, and expected fields")
+    args = parser.parse_args()
+
+    rows = _read_jsonl(Path(args.ground_truth))
+    console = Console()
+
+    for row in tqdm(rows, desc="Evaluating", unit="case"):
+        name = row["name"]
+        website = row.get("website")
+        expected = row.get("expected", {})
+
+        console.rule(name)
+        try:
+            profile = lookup_organization(name=name, website=website, progress=None)
+        except Exception as exc:  # noqa: BLE001 - keep batch evaluation running
+            console.print(f"[red]Agent failed:[/red] {exc}")
+            continue
+
+        prediction = profile.model_dump()
+        table = Table(show_header=True)
+        table.add_column("Field")
+        table.add_column("Ground Truth")
+        table.add_column("Agent")
+
+        for field, expected_value in expected.items():
+            actual_value = prediction.get(field)
+            table.add_row(field, _format_value(expected_value), _format_value(actual_value))
+
+        console.print(table)
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def _format_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+if __name__ == "__main__":
+    main()
