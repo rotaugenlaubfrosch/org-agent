@@ -1,5 +1,6 @@
 from org_agent.graph import (
     NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
+    NO_REGISTRY_PURPOSE_MESSAGE,
     _fill_registry_only_field_messages,
     _keep_requested_extraction_fields,
     _missing_profile_fields,
@@ -39,6 +40,7 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
     schema = PageExtraction.model_json_schema()
 
     assert "legal_address" not in str(schema)
+    assert "purpose" not in str(schema)
 
 
 def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
@@ -73,14 +75,15 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
     assert extraction.missing_fields == ["address", "email"]
 
 
-def test_fill_registry_only_field_messages_sets_no_registry_legal_address_message() -> None:
+def test_fill_registry_only_field_messages_sets_no_registry_messages() -> None:
     profile = OrganizationProfile(name="Example Ltd")
 
     _fill_registry_only_field_messages(profile, AppConfig())
 
     assert profile.legal_address == NO_REGISTRY_LEGAL_ADDRESS_MESSAGE
-    assert profile.evidence[-1].field == "legal_address"
-    assert profile.evidence[-1].source == "agent"
+    assert profile.purpose == NO_REGISTRY_PURPOSE_MESSAGE
+    assert [entry.field for entry in profile.evidence] == ["legal_address", "purpose"]
+    assert all(entry.source == "agent" for entry in profile.evidence)
 
 
 def test_fill_registry_only_field_messages_skips_when_registry_enabled() -> None:
@@ -99,3 +102,4 @@ def test_fill_registry_only_field_messages_skips_when_registry_enabled() -> None
     _fill_registry_only_field_messages(profile, config)
 
     assert profile.legal_address is None
+    assert profile.purpose is None

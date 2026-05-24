@@ -57,6 +57,9 @@ EXTRACTABLE_PROFILE_FIELDS = (
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
 )
+NO_REGISTRY_PURPOSE_MESSAGE = (
+    "No third-party registry was attached; purpose can only be provided by a registry."
+)
 
 
 def build_graph(
@@ -464,18 +467,25 @@ def _keep_requested_extraction_fields(extraction: PageExtraction, requested_fiel
 
 def _fill_registry_only_field_messages(profile: OrganizationProfile, app_config: AppConfig) -> None:
     has_enabled_registry = any(registry.enabled for registry in app_config.registries)
-    if has_enabled_registry or profile.legal_address:
+    if has_enabled_registry:
         return
 
-    profile.legal_address = NO_REGISTRY_LEGAL_ADDRESS_MESSAGE
-    profile.evidence.append(
-        EvidenceEntry(
-            field="legal_address",
-            value=NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
-            source="agent",
-            reasoning="No third-party registry was attached; legal_address is not extracted from websites.",
+    registry_only_fields = {
+        "legal_address": NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
+        "purpose": NO_REGISTRY_PURPOSE_MESSAGE,
+    }
+    for field, message in registry_only_fields.items():
+        if getattr(profile, field):
+            continue
+        setattr(profile, field, message)
+        profile.evidence.append(
+            EvidenceEntry(
+                field=field,
+                value=message,
+                source="agent",
+                reasoning=f"No third-party registry was attached; {field} is not extracted from websites.",
+            )
         )
-    )
 
 
 def _set_website_evidence_source(evidence: list[EvidenceEntry], page_url: str) -> None:
