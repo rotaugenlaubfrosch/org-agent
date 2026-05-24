@@ -238,7 +238,7 @@ The result is an `OrganizationProfile` with:
 - `region`
 - `evidence`
 
-The `description` should be factual and non-promotional. The `evidence` entries explain sources and decisions.
+The `description` should be factual and non-promotional. The `legal_address` field is registry-only and is not crawled from websites; if no third-party registry is attached, it contains a message explaining that limitation. The `evidence` entries explain sources and decisions.
 
 ## Development
 
