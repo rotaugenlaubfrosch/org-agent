@@ -54,6 +54,10 @@ EXTRACTABLE_PROFILE_FIELDS = (
     "region",
 )
 
+NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
+    "No third-party registry was attached; legal_address can only be provided by a registry."
+)
+
 
 def build_graph(
     settings: Settings,
@@ -221,7 +225,7 @@ def build_graph(
 
         selected_urls = _normalize_selected_urls(decision.selected_urls[:3], state.candidate_links)
         analysis = PageAnalysis(
-            profile_patch=extraction.profile_patch,
+            profile_patch=OrganizationProfilePatch.model_validate(extraction.profile_patch.model_dump()),
             evidence=extraction.evidence,
             missing_fields=remaining_missing_fields,
             selected_urls=decision.selected_urls[:3],
@@ -267,6 +271,7 @@ def build_graph(
         state.profile.name = state.input.name
         if state.website and not state.profile.website:
             state.profile.website = state.website
+        _fill_registry_only_field_messages(state.profile, app_config)
         _write_crawl_text_logs(state, settings, progress)
         for error in state.errors:
             state.profile.evidence.append(
@@ -450,11 +455,27 @@ def _missing_profile_fields(profile: OrganizationProfile) -> list[str]:
 
 def _keep_requested_extraction_fields(extraction: PageExtraction, requested_fields: list[str]) -> None:
     requested = set(requested_fields)
-    for field in EXTRACTABLE_PROFILE_FIELDS:
+    for field in extraction.profile_patch.__class__.model_fields:
         if field not in requested:
             setattr(extraction.profile_patch, field, None)
     extraction.evidence = [entry for entry in extraction.evidence if entry.field in requested]
     extraction.missing_fields = [field for field in extraction.missing_fields if field in requested]
+
+
+def _fill_registry_only_field_messages(profile: OrganizationProfile, app_config: AppConfig) -> None:
+    has_enabled_registry = any(registry.enabled for registry in app_config.registries)
+    if has_enabled_registry or profile.legal_address:
+        return
+
+    profile.legal_address = NO_REGISTRY_LEGAL_ADDRESS_MESSAGE
+    profile.evidence.append(
+        EvidenceEntry(
+            field="legal_address",
+            value=NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
+            source="agent",
+            reasoning="No third-party registry was attached; legal_address is not extracted from websites.",
+        )
+    )
 
 
 def _set_website_evidence_source(evidence: list[EvidenceEntry], page_url: str) -> None:

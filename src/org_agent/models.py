@@ -50,6 +50,19 @@ class OrganizationProfilePatch(BaseModel):
     region: str | None = None
 
 
+class WebsiteOrganizationProfilePatch(BaseModel):
+    official_company_name: str | None = None
+    registration_id: str | None = None
+    legal_form: str | None = None
+    industry: str | None = None
+    description: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    country: str | None = None
+    region: str | None = None
+
+
 class LookupInput(BaseModel):
     name: str
     website: HttpUrl | None = None
@@ -111,8 +124,8 @@ class CrawlDecision(BaseModel):
 
 
 class PageExtraction(BaseModel):
-    profile_patch: OrganizationProfilePatch = Field(
-        default_factory=OrganizationProfilePatch,
+    profile_patch: WebsiteOrganizationProfilePatch = Field(
+        default_factory=WebsiteOrganizationProfilePatch,
         description="Fields that can be filled or updated from the current page.",
     )
     evidence: list[EvidenceEntry] = Field(default_factory=list)
