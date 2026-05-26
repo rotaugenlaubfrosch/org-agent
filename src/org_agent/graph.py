@@ -43,7 +43,6 @@ from org_agent.website import (
 
 EXTRACTABLE_PROFILE_FIELDS = (
     "official_company_name",
-    "registration_id",
     "legal_form",
     "industry",
     "description",
@@ -59,6 +58,9 @@ NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
 )
 NO_REGISTRY_PURPOSE_MESSAGE = (
     "No third-party registry was attached; purpose can only be provided by a registry."
+)
+NO_REGISTRY_REGISTRATION_ID_MESSAGE = (
+    "No third-party registry was attached; registration_id can only be provided by a registry."
 )
 
 
@@ -471,6 +473,7 @@ def _fill_registry_only_field_messages(profile: OrganizationProfile, app_config:
         return
 
     registry_only_fields = {
+        "registration_id": NO_REGISTRY_REGISTRATION_ID_MESSAGE,
         "legal_address": NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
         "purpose": NO_REGISTRY_PURPOSE_MESSAGE,
     }

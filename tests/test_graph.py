@@ -1,6 +1,7 @@
 from org_agent.graph import (
     NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
     NO_REGISTRY_PURPOSE_MESSAGE,
+    NO_REGISTRY_REGISTRATION_ID_MESSAGE,
     _fill_registry_only_field_messages,
     _keep_requested_extraction_fields,
     _missing_profile_fields,
@@ -25,7 +26,6 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
 
     assert _missing_profile_fields(profile) == [
         "official_company_name",
-        "registration_id",
         "legal_form",
         "description",
         "phone",
@@ -34,6 +34,7 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
         "region",
     ]
     assert "legal_address" not in _missing_profile_fields(profile)
+    assert "registration_id" not in _missing_profile_fields(profile)
 
 
 def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
@@ -41,6 +42,7 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
 
     assert "legal_address" not in str(schema)
     assert "purpose" not in str(schema)
+    assert "registration_id" not in str(schema)
 
 
 def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
@@ -82,7 +84,12 @@ def test_fill_registry_only_field_messages_sets_no_registry_messages() -> None:
 
     assert profile.legal_address == NO_REGISTRY_LEGAL_ADDRESS_MESSAGE
     assert profile.purpose == NO_REGISTRY_PURPOSE_MESSAGE
-    assert [entry.field for entry in profile.evidence] == ["legal_address", "purpose"]
+    assert profile.registration_id == NO_REGISTRY_REGISTRATION_ID_MESSAGE
+    assert [entry.field for entry in profile.evidence] == [
+        "registration_id",
+        "legal_address",
+        "purpose",
+    ]
     assert all(entry.source == "agent" for entry in profile.evidence)
 
 
@@ -103,3 +110,4 @@ def test_fill_registry_only_field_messages_skips_when_registry_enabled() -> None
 
     assert profile.legal_address is None
     assert profile.purpose is None
+    assert profile.registration_id is None

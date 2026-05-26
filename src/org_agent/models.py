@@ -52,7 +52,6 @@ class OrganizationProfilePatch(BaseModel):
 
 class WebsiteOrganizationProfilePatch(BaseModel):
     official_company_name: str | None = None
-    registration_id: str | None = None
     legal_form: str | None = None
     industry: str | None = None
     description: str | None = None
