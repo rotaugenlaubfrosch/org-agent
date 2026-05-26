@@ -5,6 +5,24 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, HttpUrl
 
 
+PROFILE_DISPLAY_FIELDS = (
+    "name",
+    "official_company_name",
+    "website",
+    "registration_id",
+    "legal_form",
+    "industry",
+    "description",
+    "purpose",
+    "address",
+    "legal_address",
+    "phone",
+    "email",
+    "country",
+    "region",
+)
+
+
 class EvidenceEntry(BaseModel):
     field: str = Field(description="The output field this evidence supports, or 'general'.")
     value: str | None = Field(default=None, description="The derived value, if applicable.")

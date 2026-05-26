@@ -9,6 +9,10 @@ from rich.table import Table
 from tqdm import tqdm
 
 from org_agent.api import lookup_organization
+from org_agent.models import PROFILE_DISPLAY_FIELDS
+
+
+MISSING_GROUND_TRUTH = "(not in ground truth)"
 
 
 def main() -> None:
@@ -42,7 +46,8 @@ def main() -> None:
         table.add_column("Ground Truth")
         table.add_column("Agent")
 
-        for field, expected_value in expected.items():
+        for field in PROFILE_DISPLAY_FIELDS:
+            expected_value = expected.get(field, MISSING_GROUND_TRUTH)
             actual_value = prediction.get(field)
             table.add_row(field, _format_value(expected_value), _format_value(actual_value))
 
