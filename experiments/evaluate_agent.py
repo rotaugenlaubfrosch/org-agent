@@ -19,6 +19,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Compare agent output against JSONL ground truth.")
     parser.add_argument("ground_truth", help="JSONL file with name, optional website, and expected fields")
     parser.add_argument("index", nargs="?", type=int, help="Optional zero-based row index to evaluate")
+    parser.add_argument(
+        "--config",
+        help="Optional registry YAML config with endpoints to query before extraction.",
+    )
+    parser.add_argument(
+        "--registry",
+        action="append",
+        default=[],
+        dest="registries",
+        help="Enable optional registry provider(s), e.g. zefix. Repeatable.",
+    )
     args = parser.parse_args()
 
     rows = _read_jsonl(Path(args.ground_truth))
@@ -35,7 +46,13 @@ def main() -> None:
 
         console.rule(name)
         try:
-            profile = lookup_organization(name=name, website=website, progress=None)
+            profile = lookup_organization(
+                name=name,
+                website=website,
+                config=args.config,
+                registries=args.registries,
+                progress=None,
+            )
         except Exception as exc:  # noqa: BLE001 - keep batch evaluation running
             console.print(f"[red]Agent failed:[/red] {exc}")
             continue

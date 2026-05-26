@@ -50,7 +50,6 @@ EXTRACTABLE_PROFILE_FIELDS = (
     "phone",
     "email",
     "country",
-    "region",
 )
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
@@ -61,6 +60,9 @@ NO_REGISTRY_PURPOSE_MESSAGE = (
 )
 NO_REGISTRY_REGISTRATION_ID_MESSAGE = (
     "No third-party registry was attached; registration_id can only be provided by a registry."
+)
+NO_REGISTRY_REGION_MESSAGE = (
+    "No third-party registry was attached; region can only be provided by a registry."
 )
 
 
@@ -476,6 +478,7 @@ def _fill_registry_only_field_messages(profile: OrganizationProfile, app_config:
         "registration_id": NO_REGISTRY_REGISTRATION_ID_MESSAGE,
         "legal_address": NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
         "purpose": NO_REGISTRY_PURPOSE_MESSAGE,
+        "region": NO_REGISTRY_REGION_MESSAGE,
     }
     for field, message in registry_only_fields.items():
         if getattr(profile, field):

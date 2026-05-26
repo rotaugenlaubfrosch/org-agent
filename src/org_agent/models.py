@@ -77,7 +77,6 @@ class WebsiteOrganizationProfilePatch(BaseModel):
     phone: str | None = None
     email: str | None = None
     country: str | None = None
-    region: str | None = None
 
 
 class LookupInput(BaseModel):
