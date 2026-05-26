@@ -223,7 +223,7 @@ profile = await lookup_organization_async(
 
 The result is an `OrganizationProfile` with:
 
-- `name`
+- `queried_name`
 - `official_company_name`
 - `website`
 - `registration_id`
@@ -239,7 +239,7 @@ The result is an `OrganizationProfile` with:
 - `region`
 - `evidence`
 
-The CLI and experiment evaluator display the same ordered scalar fields. The `description` should be factual and non-promotional. The `official_company_name`, `registration_id`, `purpose`, `legal_address`, and `region` fields are registry-only and are not crawled from websites; if no third-party registry is attached, they contain messages explaining that limitation. The `evidence` entries explain sources and decisions.
+The `queried_name` field is the original name passed to the lookup command or API. The CLI and experiment evaluator display the same ordered scalar fields. The `description` should be factual and non-promotional. The `official_company_name`, `registration_id`, `purpose`, `legal_address`, and `region` fields are registry-only and are not crawled from websites; if no third-party registry is attached, they contain messages explaining that limitation. The `evidence` entries explain sources and decisions.
 
 The experiment evaluator accepts the same registry inputs as normal lookups, for example `--registry zefix` or `--config registries.yml`.
 
