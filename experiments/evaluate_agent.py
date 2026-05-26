@@ -43,6 +43,7 @@ def main() -> None:
         name = row["name"]
         website = row.get("website")
         expected = row.get("expected", {})
+        expected = {"queried_name": name, **expected}
 
         console.rule(name)
         try:

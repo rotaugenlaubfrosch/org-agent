@@ -20,7 +20,7 @@ from org_agent.models import (
 
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     profile = OrganizationProfile(
-        name="Example Ltd",
+        queried_name="Example Ltd",
         website="https://example.com",
         industry="Software",
         address="Example Street 1",
@@ -44,6 +44,7 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
 
     assert "legal_address" not in str(schema)
     assert "official_company_name" not in str(schema)
+    assert "queried_name" not in str(schema)
     assert "purpose" not in str(schema)
     assert "registration_id" not in str(schema)
     assert "region" not in str(schema)
@@ -80,7 +81,7 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
 
 
 def test_fill_registry_only_field_messages_sets_no_registry_messages() -> None:
-    profile = OrganizationProfile(name="Example Ltd")
+    profile = OrganizationProfile(queried_name="Example Ltd")
 
     _fill_registry_only_field_messages(profile, AppConfig())
 
@@ -100,7 +101,7 @@ def test_fill_registry_only_field_messages_sets_no_registry_messages() -> None:
 
 
 def test_fill_registry_only_field_messages_skips_when_registry_enabled() -> None:
-    profile = OrganizationProfile(name="Example Ltd")
+    profile = OrganizationProfile(queried_name="Example Ltd")
     config = AppConfig(
         registries=[
             RegistryEndpointConfig(

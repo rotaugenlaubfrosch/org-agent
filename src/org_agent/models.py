@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 PROFILE_DISPLAY_FIELDS = (
-    "name",
+    "queried_name",
     "official_company_name",
     "website",
     "registration_id",
@@ -45,7 +45,7 @@ class EvidenceEntry(BaseModel):
 
 
 class OrganizationProfile(BaseModel):
-    name: str
+    queried_name: str
     official_company_name: str | None = None
     website: str | None = None
     registration_id: str | None = None
@@ -66,7 +66,6 @@ class OrganizationProfile(BaseModel):
 
 
 class OrganizationProfilePatch(BaseModel):
-    name: str | None = None
     official_company_name: str | None = None
     website: str | None = None
     registration_id: str | None = None

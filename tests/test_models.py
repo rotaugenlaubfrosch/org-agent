@@ -9,7 +9,7 @@ from org_agent.models import (
 
 def test_organization_profile_accepts_expected_fields() -> None:
     profile = OrganizationProfile(
-        name="Example Ltd",
+        queried_name="Example Ltd",
         official_company_name="Example Ltd Official",
         website="https://example.com",
         registration_id="12345",
@@ -33,7 +33,7 @@ def test_organization_profile_accepts_expected_fields() -> None:
         ],
     )
 
-    assert profile.name == "Example Ltd"
+    assert profile.queried_name == "Example Ltd"
     assert profile.official_company_name == "Example Ltd Official"
     assert profile.purpose == "Develop and distribute software."
     assert profile.legal_address == "Registry Street 10"
@@ -42,7 +42,7 @@ def test_organization_profile_accepts_expected_fields() -> None:
 
 def test_profile_display_fields_match_profile_scalar_fields() -> None:
     assert PROFILE_DISPLAY_FIELDS == (
-        "name",
+        "queried_name",
         "official_company_name",
         "website",
         "registration_id",
@@ -65,7 +65,7 @@ def test_profile_display_field_groups_separate_normal_and_registry_fields() -> N
     normal_fields, registry_fields = profile_display_field_groups()
 
     assert normal_fields == (
-        "name",
+        "queried_name",
         "website",
         "legal_form",
         "industry",

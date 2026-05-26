@@ -83,7 +83,7 @@ def build_graph(
         state.website = str(state.input.website) if state.input.website else None
         if state.website:
             report(progress, "input", f"Using provided website: {state.website}")
-        state.profile = OrganizationProfile(name=state.input.name, website=state.website)
+        state.profile = OrganizationProfile(queried_name=state.input.name, website=state.website)
         return state
 
     async def discover_website(state: AgentState) -> AgentState:
@@ -276,8 +276,8 @@ def build_graph(
 
     async def finalize_profile(state: AgentState) -> AgentState:
         if state.profile is None:
-            state.profile = OrganizationProfile(name=state.input.name, website=state.website)
-        state.profile.name = state.input.name
+            state.profile = OrganizationProfile(queried_name=state.input.name, website=state.website)
+        state.profile.queried_name = state.input.name
         if state.website and not state.profile.website:
             state.profile.website = state.website
         _fill_registry_only_field_messages(state.profile, app_config)
