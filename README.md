@@ -239,7 +239,9 @@ The result is an `OrganizationProfile` with:
 - `region`
 - `evidence`
 
-The CLI and experiment evaluator display the same ordered scalar fields. The `description` should be factual and non-promotional. The `registration_id`, `purpose`, and `legal_address` fields are registry-only and are not crawled from websites; if no third-party registry is attached, they contain messages explaining that limitation. The `evidence` entries explain sources and decisions.
+The CLI and experiment evaluator display the same ordered scalar fields. The `description` should be factual and non-promotional. The `official_company_name`, `registration_id`, `purpose`, `legal_address`, and `region` fields are registry-only and are not crawled from websites; if no third-party registry is attached, they contain messages explaining that limitation. The `evidence` entries explain sources and decisions.
+
+The experiment evaluator accepts the same registry inputs as normal lookups, for example `--registry zefix` or `--config registries.yml`.
 
 ## Development
 
