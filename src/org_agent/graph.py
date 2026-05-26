@@ -42,7 +42,6 @@ from org_agent.website import (
 
 
 EXTRACTABLE_PROFILE_FIELDS = (
-    "official_company_name",
     "legal_form",
     "industry",
     "description",
@@ -63,6 +62,9 @@ NO_REGISTRY_REGISTRATION_ID_MESSAGE = (
 )
 NO_REGISTRY_REGION_MESSAGE = (
     "No third-party registry was attached; region can only be provided by a registry."
+)
+NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE = (
+    "No third-party registry was attached; official_company_name can only be provided by a registry."
 )
 
 
@@ -351,8 +353,6 @@ async def _extract_page_info(
         f"{formatted_fields}\n"
         "Do not extract, mention, or fill any fields that are not listed above. "
         "Use null for listed fields that are not present on the current page.\n"
-        "For official_company_name, extract the legal or formal company name as written "
-        "on the page, not merely the user query or a generic brand label.\n"
         "Write brief evidence entries for each extracted value. "
         "Write a one-sentence factual explanation as reasoning.\n"
         "Do not include advertising language in the description; write a factual summary.\n\n"
@@ -475,6 +475,7 @@ def _fill_registry_only_field_messages(profile: OrganizationProfile, app_config:
         return
 
     registry_only_fields = {
+        "official_company_name": NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE,
         "registration_id": NO_REGISTRY_REGISTRATION_ID_MESSAGE,
         "legal_address": NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
         "purpose": NO_REGISTRY_PURPOSE_MESSAGE,

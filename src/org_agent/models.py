@@ -22,6 +22,20 @@ PROFILE_DISPLAY_FIELDS = (
     "region",
 )
 
+REGISTRY_ONLY_PROFILE_FIELDS = (
+    "official_company_name",
+    "registration_id",
+    "purpose",
+    "legal_address",
+    "region",
+)
+
+
+def profile_display_field_groups() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    registry_fields = set(REGISTRY_ONLY_PROFILE_FIELDS)
+    normal_fields = tuple(field for field in PROFILE_DISPLAY_FIELDS if field not in registry_fields)
+    return normal_fields, REGISTRY_ONLY_PROFILE_FIELDS
+
 
 class EvidenceEntry(BaseModel):
     field: str = Field(description="The output field this evidence supports, or 'general'.")
@@ -69,7 +83,6 @@ class OrganizationProfilePatch(BaseModel):
 
 
 class WebsiteOrganizationProfilePatch(BaseModel):
-    official_company_name: str | None = None
     legal_form: str | None = None
     industry: str | None = None
     description: str | None = None

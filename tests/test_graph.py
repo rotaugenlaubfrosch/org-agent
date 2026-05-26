@@ -1,5 +1,6 @@
 from org_agent.graph import (
     NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
+    NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE,
     NO_REGISTRY_PURPOSE_MESSAGE,
     NO_REGISTRY_REGION_MESSAGE,
     NO_REGISTRY_REGISTRATION_ID_MESSAGE,
@@ -26,7 +27,6 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     )
 
     assert _missing_profile_fields(profile) == [
-        "official_company_name",
         "legal_form",
         "description",
         "phone",
@@ -34,6 +34,7 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
         "country",
     ]
     assert "legal_address" not in _missing_profile_fields(profile)
+    assert "official_company_name" not in _missing_profile_fields(profile)
     assert "registration_id" not in _missing_profile_fields(profile)
     assert "region" not in _missing_profile_fields(profile)
 
@@ -42,6 +43,7 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
     schema = PageExtraction.model_json_schema()
 
     assert "legal_address" not in str(schema)
+    assert "official_company_name" not in str(schema)
     assert "purpose" not in str(schema)
     assert "registration_id" not in str(schema)
     assert "region" not in str(schema)
@@ -50,7 +52,6 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
 def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
     extraction = PageExtraction(
         profile_patch=WebsiteOrganizationProfilePatch(
-            official_company_name="Example Ltd Official",
             industry="Software",
             address="Example Street 1",
             phone="+1 555 0100",
@@ -72,7 +73,6 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
     _keep_requested_extraction_fields(extraction, ["address", "email"])
 
     assert extraction.profile_patch.industry is None
-    assert extraction.profile_patch.official_company_name is None
     assert extraction.profile_patch.address == "Example Street 1"
     assert extraction.profile_patch.phone is None
     assert [entry.field for entry in extraction.evidence] == ["address"]
@@ -85,10 +85,12 @@ def test_fill_registry_only_field_messages_sets_no_registry_messages() -> None:
     _fill_registry_only_field_messages(profile, AppConfig())
 
     assert profile.legal_address == NO_REGISTRY_LEGAL_ADDRESS_MESSAGE
+    assert profile.official_company_name == NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE
     assert profile.purpose == NO_REGISTRY_PURPOSE_MESSAGE
     assert profile.registration_id == NO_REGISTRY_REGISTRATION_ID_MESSAGE
     assert profile.region == NO_REGISTRY_REGION_MESSAGE
     assert [entry.field for entry in profile.evidence] == [
+        "official_company_name",
         "registration_id",
         "legal_address",
         "purpose",
@@ -113,6 +115,7 @@ def test_fill_registry_only_field_messages_skips_when_registry_enabled() -> None
     _fill_registry_only_field_messages(profile, config)
 
     assert profile.legal_address is None
+    assert profile.official_company_name is None
     assert profile.purpose is None
     assert profile.registration_id is None
     assert profile.region is None

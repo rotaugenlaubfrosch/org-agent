@@ -1,4 +1,10 @@
-from org_agent.models import PROFILE_DISPLAY_FIELDS, EvidenceEntry, OrganizationProfile
+from org_agent.models import (
+    PROFILE_DISPLAY_FIELDS,
+    REGISTRY_ONLY_PROFILE_FIELDS,
+    EvidenceEntry,
+    OrganizationProfile,
+    profile_display_field_groups,
+)
 
 
 def test_organization_profile_accepts_expected_fields() -> None:
@@ -53,3 +59,30 @@ def test_profile_display_fields_match_profile_scalar_fields() -> None:
     )
     assert "evidence" not in PROFILE_DISPLAY_FIELDS
     assert set(PROFILE_DISPLAY_FIELDS).issubset(OrganizationProfile.model_fields)
+
+
+def test_profile_display_field_groups_separate_normal_and_registry_fields() -> None:
+    normal_fields, registry_fields = profile_display_field_groups()
+
+    assert normal_fields == (
+        "name",
+        "website",
+        "legal_form",
+        "industry",
+        "description",
+        "address",
+        "phone",
+        "email",
+        "country",
+    )
+    assert registry_fields == REGISTRY_ONLY_PROFILE_FIELDS
+    assert registry_fields == (
+        "official_company_name",
+        "registration_id",
+        "purpose",
+        "legal_address",
+        "region",
+    )
+    assert set(normal_fields).isdisjoint(registry_fields)
+    assert normal_fields + registry_fields != PROFILE_DISPLAY_FIELDS
+    assert set(normal_fields + registry_fields) == set(PROFILE_DISPLAY_FIELDS)

@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from org_agent.api import lookup_organization
-from org_agent.models import PROFILE_DISPLAY_FIELDS, OrganizationProfile
+from org_agent.models import OrganizationProfile, profile_display_field_groups
 
 HELP_TEXT = """Enrich organization profiles from a name and optional website.
 
@@ -152,7 +152,12 @@ def _print_profile(profile: OrganizationProfile) -> None:
     table.add_column("Field", style="cyan", no_wrap=True)
     table.add_column("Value")
 
-    for field in PROFILE_DISPLAY_FIELDS:
+    normal_fields, registry_fields = profile_display_field_groups()
+    for field in normal_fields:
+        value = getattr(profile, field)
+        table.add_row(field, "" if value is None else str(value))
+    table.add_section()
+    for field in registry_fields:
         value = getattr(profile, field)
         table.add_row(field, "" if value is None else str(value))
 
