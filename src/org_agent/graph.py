@@ -228,6 +228,7 @@ def build_graph(
             llm,
             crawl_decision_parser,
             state.input.name,
+            remaining_missing_fields,
             state.candidate_links,
             progress,
         )
@@ -381,12 +382,16 @@ async def _select_next_links(
     llm: BaseChatModel,
     parser: PydanticOutputParser,
     organization_name: str,
+    missing_fields: list[str],
     candidate_links: list[WebsiteLink],
     progress: ProgressCallback | None,
 ) -> CrawlDecision:
     available_links = [link.model_dump() for link in candidate_links[:80]]
+    formatted_missing_fields = "\n".join(f"- {field}" for field in missing_fields) or "- none"
     prompt = (
         "You are choosing website links to visit while collecting company information.\n"
+        "Prioritize links that are likely to contain these still-missing fields:\n"
+        f"{formatted_missing_fields}\n"
         "Select up to 3 URLs most likely to contain factual company or organization data, "
         "such as about/company details, contact information, legal/imprint information, "
         "privacy information, registration details, address, email, or phone.\n"
