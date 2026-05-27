@@ -6,12 +6,15 @@ from org_agent.graph import (
     NO_REGISTRY_REGISTRATION_ID_MESSAGE,
     _fill_registry_only_field_messages,
     _keep_requested_extraction_fields,
+    _merge_profile_patch,
     _missing_profile_fields,
+    _truncate_progress_value,
 )
 from org_agent.models import (
     AppConfig,
     EvidenceEntry,
     OrganizationProfile,
+    OrganizationProfilePatch,
     PageExtraction,
     RegistryEndpointConfig,
     WebsiteOrganizationProfilePatch,
@@ -120,3 +123,27 @@ def test_fill_registry_only_field_messages_skips_when_registry_enabled() -> None
     assert profile.purpose is None
     assert profile.registration_id is None
     assert profile.region is None
+
+
+def test_merge_profile_patch_returns_only_newly_filled_fields() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        website="https://example.com",
+        email="old@example.com",
+    )
+    patch = OrganizationProfilePatch(
+        email="new@example.com",
+        phone="+1 555 0100",
+    )
+
+    filled_fields = _merge_profile_patch(profile, patch)
+
+    assert profile.email == "new@example.com"
+    assert profile.phone == "+1 555 0100"
+    assert filled_fields == [("phone", "+1 555 0100")]
+
+
+def test_truncate_progress_value_appends_ellipsis_at_limit() -> None:
+    value = "x" * 61
+
+    assert _truncate_progress_value(value) == f"{'x' * 60}..."

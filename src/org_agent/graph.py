@@ -115,7 +115,7 @@ def build_graph(
         enabled_count = sum(1 for registry in app_config.registries if registry.enabled)
         if enabled_count == 0:
             return state
-        report(progress, "registry", f"Querying {enabled_count} configured registry endpoint(s).")
+            report(progress, "registry", f"Querying {enabled_count} configured registry endpoint(s).")
         state.registry_results = await query_registries(
             state.input.name,
             app_config,
@@ -124,7 +124,8 @@ def build_graph(
         )
         if state.profile is not None:
             for result in state.registry_results:
-                _merge_profile_patch(state.profile, result.profile_patch)
+                filled_fields = _merge_profile_patch(state.profile, result.profile_patch)
+                _report_filled_fields(progress, "registry", filled_fields)
                 _extend_evidence_dedup(state.profile.evidence, result.evidence)
         report(progress, "registry", f"Collected {len(state.registry_results)} registry result(s).")
         return state
@@ -219,7 +220,8 @@ def build_graph(
             _set_website_evidence_source(extraction.evidence, state.current_page.url)
         else:
             extraction = PageExtraction(reasoning="No missing profile fields remain before this page.")
-        _merge_profile_patch(state.profile, extraction.profile_patch)
+        filled_fields = _merge_profile_patch(state.profile, extraction.profile_patch)
+        _report_filled_fields(progress, "website", filled_fields)
         _extend_evidence_dedup(state.profile.evidence, extraction.evidence)
         remaining_missing_fields = _missing_profile_fields(state.profile)
         report(progress, "website", f"Extraction: {extraction.reasoning}")
@@ -375,7 +377,7 @@ async def _extract_page_info(
         return result if isinstance(result, PageExtraction) else PageExtraction.model_validate(result)
     except Exception as exc:  # noqa: BLE001
         report(progress, "website", f"Structured extraction failed; retrying with JSON prompt. {exc}")
-        return await _retry_json_parse(llm, parser, messages)
+        return await _retry_json_parse(llm, parser, messages, progress=progress)
 
 
 async def _select_next_links(
@@ -388,6 +390,12 @@ async def _select_next_links(
 ) -> CrawlDecision:
     available_links = [link.model_dump() for link in candidate_links[:80]]
     formatted_missing_fields = "\n".join(f"- {field}" for field in missing_fields) or "- none"
+    missing_summary = ", ".join(missing_fields) or "none"
+    report(
+        progress,
+        "website",
+        f"Selecting next links from {len(available_links)} candidate(s); missing fields: {missing_summary}",
+    )
     prompt = (
         "You are choosing website links to visit while collecting company information.\n"
         "Prioritize links that are likely to contain these still-missing fields:\n"
@@ -406,13 +414,15 @@ async def _select_next_links(
         HumanMessage(content=prompt),
     ]
     try:
+        report(progress, "website", "Calling LLM for link selection...")
         structured_llm = llm.with_structured_output(CrawlDecision)
         result = await structured_llm.ainvoke(messages)
         decision = result if isinstance(result, CrawlDecision) else CrawlDecision.model_validate(result)
     except Exception as exc:  # noqa: BLE001
         report(progress, "website", f"Structured link selection failed; retrying with JSON prompt. {exc}")
-        decision = await _retry_json_parse(llm, parser, messages)
+        decision = await _retry_json_parse(llm, parser, messages, progress=progress)
     decision.selected_urls = decision.selected_urls[:3]
+    report(progress, "website", f"LLM link selection returned {len(decision.selected_urls)} URL(s).")
     return decision
 
 
@@ -420,11 +430,13 @@ async def _retry_json_parse(
     llm: BaseChatModel,
     parser: PydanticOutputParser,
     messages: list,
+    progress: ProgressCallback | None = None,
 ) -> PageExtraction | CrawlDecision:
     response = await llm.ainvoke(messages)
     try:
         return parser.parse(str(response.content))
     except OutputParserException:
+        report(progress, "website", "Repairing invalid JSON response...")
         repair_response = await llm.ainvoke(
             [
                 SystemMessage(
@@ -444,10 +456,33 @@ async def _retry_json_parse(
         return parser.parse(str(repair_response.content))
 
 
-def _merge_profile_patch(profile: OrganizationProfile, patch: OrganizationProfilePatch) -> None:
+def _merge_profile_patch(
+    profile: OrganizationProfile,
+    patch: OrganizationProfilePatch,
+) -> list[tuple[str, str]]:
+    filled_fields: list[tuple[str, str]] = []
     for field, value in patch.model_dump().items():
         if value not in {None, ""}:
+            was_empty = getattr(profile, field) in {None, ""}
             setattr(profile, field, value)
+            if was_empty:
+                filled_fields.append((field, str(value)))
+    return filled_fields
+
+
+def _report_filled_fields(
+    progress: ProgressCallback | None,
+    step: str,
+    filled_fields: list[tuple[str, str]],
+) -> None:
+    for field, value in filled_fields:
+        report(progress, step, f"Filled {field}: {_truncate_progress_value(value)}")
+
+
+def _truncate_progress_value(value: str, max_length: int = 60) -> str:
+    if len(value) <= max_length:
+        return value
+    return f"{value[:max_length]}..."
 
 
 def _extend_evidence_dedup(existing: list[EvidenceEntry], incoming: list[EvidenceEntry]) -> None:
