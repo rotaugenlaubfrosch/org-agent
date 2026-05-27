@@ -9,7 +9,7 @@ It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, an
 - Looks up an organization by name.
 - Uses a provided website, or discovers one through an optional search provider.
 - Crawls the website with Playwright. 
-- Follows useful links found on the website, such as contact, imprint, legal, privacy, and about pages.
+- Follows useful links found on the website in breadth-first order, such as contact, imprint, legal, privacy, and about pages.
 - Optionally queries configured registry API endpoints.
 - Sends gathered evidence to an LLM.
 - Returns a structured organization profile with evidence entries.
@@ -135,10 +135,10 @@ The crawler:
 - removes obvious junk links such as carts, login pages, product detail pages, campaigns, and social media
 - asks the LLM to update the partial profile from the current page
 - asks the LLM whether enough information has been collected
-- asks the LLM which remaining candidate links should be visited next
+- asks the LLM which remaining candidate links should be visited next, prioritizing links likely to contain fields that are still missing
 - repeats page-by-page up to the configured crawl limits
 
-The crawl uses a hybrid approach. Deterministic filtering removes obvious noise before the LLM sees the links, including shopping, account/login, product detail, campaign, social media, and static asset links. Candidate links must also contain an organization-information signal such as contact, imprint/legal, privacy, company/about, story, or terms. The LLM extracts profile data from the current page, then receives the filtered candidate links and selects up to three actual discovered URLs most likely to contain company information. The crawler does not invent `/contact` or `/impressum` paths.
+The crawl uses a hybrid approach. Deterministic filtering removes obvious noise before the LLM sees the links, including shopping, account/login, product detail, campaign, social media, and static asset links. Candidate links must also contain an organization-information signal such as contact, imprint/legal, privacy, company/about, story, or terms. The LLM extracts profile data from the current page, then receives the filtered candidate links and the fields still missing from the profile. It selects up to three actual discovered URLs most likely to contain that missing company information. The crawler processes queued links in breadth-first order and does not invent `/contact` or `/impressum` paths.
 
 Default crawl limits:
 
