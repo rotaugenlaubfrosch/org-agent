@@ -405,7 +405,9 @@ async def _select_next_links(
         "privacy information, registration details, address, email, or phone.\n"
         "Only select URLs from the candidate links. Do not invent URLs.\n"
         "If no candidate link looks useful, return no selected URLs and set is_complete to true; "
-        "otherwise set is_complete to false.\n\n"
+        "otherwise set is_complete to false.\n"
+        "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n\n"
+        f"{parser.get_format_instructions()}\n\n"
         f"Organization: {organization_name}\n\n"
         f"Candidate links:\n{json.dumps(available_links, ensure_ascii=False, indent=2)}"
     )
@@ -415,15 +417,30 @@ async def _select_next_links(
     ]
     try:
         report(progress, "website", "Calling LLM for link selection...")
-        structured_llm = llm.with_structured_output(CrawlDecision)
+        structured_llm = _link_selection_llm(llm)
         result = await structured_llm.ainvoke(messages)
-        decision = result if isinstance(result, CrawlDecision) else CrawlDecision.model_validate(result)
+        decision = _parse_crawl_decision_result(result, parser)
     except Exception as exc:  # noqa: BLE001
         report(progress, "website", f"Structured link selection failed; retrying with JSON prompt. {exc}")
         decision = await _retry_json_parse(llm, parser, messages, progress=progress)
     decision.selected_urls = decision.selected_urls[:3]
     report(progress, "website", f"LLM link selection returned {len(decision.selected_urls)} URL(s).")
     return decision
+
+
+def _link_selection_llm(llm: BaseChatModel):
+    if type(llm).__name__ == "ChatOllama":
+        return llm.bind(format="json")
+    return llm.with_structured_output(CrawlDecision)
+
+
+def _parse_crawl_decision_result(result: object, parser: PydanticOutputParser) -> CrawlDecision:
+    if isinstance(result, CrawlDecision):
+        return result
+    if isinstance(result, dict):
+        return CrawlDecision.model_validate(result)
+    content = getattr(result, "content", result)
+    return parser.parse(str(content))
 
 
 async def _retry_json_parse(
