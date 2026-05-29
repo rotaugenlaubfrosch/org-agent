@@ -4,6 +4,7 @@ import pytest
 
 from org_agent.settings import (
     DEFAULT_DESCRIPTION_SYSTEM_PROMPT,
+    DEFAULT_INDUSTRIES_CSV,
     Settings,
     load_app_config,
     validate_settings,
@@ -39,6 +40,9 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path)
     monkeypatch.delenv("ORG_AGENT_CRAWL_LOG_DIR", raising=False)
     monkeypatch.delenv("ORG_AGENT_PLAYWRIGHT_HEADLESS", raising=False)
     monkeypatch.delenv("ORG_AGENT_PLAYWRIGHT_SLOW_MO", raising=False)
+    monkeypatch.delenv("ORG_AGENT_INDUSTRIES_CSV", raising=False)
+    monkeypatch.delenv("ORG_AGENT_MAX_INDUSTRIES", raising=False)
+    monkeypatch.delenv("ORG_AGENT_INDUSTRY_SHORTLIST_SIZE", raising=False)
 
     settings = Settings()
 
@@ -51,6 +55,9 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path)
     assert settings.playwright_headless is True
     assert settings.playwright_slow_mo == 0
     assert settings.description_system_prompt == DEFAULT_DESCRIPTION_SYSTEM_PROMPT
+    assert settings.industries_csv == DEFAULT_INDUSTRIES_CSV
+    assert settings.max_industries == 1
+    assert settings.industry_shortlist_size == 25
     validate_settings(settings)
 
 
@@ -61,6 +68,19 @@ def test_settings_accepts_description_system_prompt(monkeypatch, tmp_path: Path)
     settings = Settings()
 
     assert settings.description_system_prompt == "Describe [Account Name]."
+
+
+def test_settings_accepts_industry_settings(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORG_AGENT_INDUSTRIES_CSV", "industries.csv")
+    monkeypatch.setenv("ORG_AGENT_MAX_INDUSTRIES", "3")
+    monkeypatch.setenv("ORG_AGENT_INDUSTRY_SHORTLIST_SIZE", "10")
+
+    settings = Settings()
+
+    assert settings.industries_csv == "industries.csv"
+    assert settings.max_industries == 3
+    assert settings.industry_shortlist_size == 10
 
 
 def test_settings_accepts_headed_playwright(monkeypatch, tmp_path: Path) -> None:

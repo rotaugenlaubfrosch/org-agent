@@ -19,6 +19,8 @@ DEFAULT_DESCRIPTION_SYSTEM_PROMPT = (
     "die Beschreibung aus, ohne Kommentare oder Zusätze ."
 )
 
+DEFAULT_INDUSTRIES_CSV = str(Path(__file__).resolve().parent / "data" / "industries.csv")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -45,6 +47,9 @@ class Settings(BaseSettings):
         default=DEFAULT_DESCRIPTION_SYSTEM_PROMPT,
         alias="ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT",
     )
+    industries_csv: str = Field(default=DEFAULT_INDUSTRIES_CSV, alias="ORG_AGENT_INDUSTRIES_CSV")
+    max_industries: int = Field(default=1, alias="ORG_AGENT_MAX_INDUSTRIES")
+    industry_shortlist_size: int = Field(default=25, alias="ORG_AGENT_INDUSTRY_SHORTLIST_SIZE")
 
     def __init__(self, **data: object) -> None:
         env_path = find_dotenv(usecwd=True)
@@ -59,6 +64,8 @@ class Settings(BaseSettings):
         "crawl_log_enabled",
         "playwright_headless",
         "playwright_slow_mo",
+        "max_industries",
+        "industry_shortlist_size",
         mode="before",
     )
     @classmethod
@@ -72,6 +79,8 @@ class Settings(BaseSettings):
             "crawl_log_enabled": True,
             "playwright_headless": True,
             "playwright_slow_mo": 0,
+            "max_industries": 1,
+            "industry_shortlist_size": 25,
         }
         return defaults[info.field_name]
 

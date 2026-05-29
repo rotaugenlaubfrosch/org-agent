@@ -83,7 +83,6 @@ class OrganizationProfilePatch(BaseModel):
 
 class WebsiteOrganizationProfilePatch(BaseModel):
     legal_form: str | None = None
-    industry: str | None = None
     address: str | None = None
     phone: str | None = None
     email: str | None = None
@@ -148,6 +147,14 @@ class CrawlDecision(BaseModel):
         description="URLs from the available links that should be visited next.",
     )
     reasoning: str = Field(description="Brief explanation of the crawl decision.")
+
+
+class IndustrySelection(BaseModel):
+    industries: list[str] = Field(
+        default_factory=list,
+        description="Canonical industries selected from the provided candidate list.",
+    )
+    reasoning: str = Field(description="Brief explanation of the industry selection.")
 
 
 class PageExtraction(BaseModel):
