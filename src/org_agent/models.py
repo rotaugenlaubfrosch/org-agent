@@ -84,7 +84,6 @@ class OrganizationProfilePatch(BaseModel):
 class WebsiteOrganizationProfilePatch(BaseModel):
     legal_form: str | None = None
     industry: str | None = None
-    description: str | None = None
     address: str | None = None
     phone: str | None = None
     email: str | None = None

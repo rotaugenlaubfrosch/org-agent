@@ -6,6 +6,7 @@ from org_agent.graph import (
     NO_REGISTRY_REGISTRATION_ID_MESSAGE,
     _fill_registry_only_field_messages,
     _keep_requested_extraction_fields,
+    _missing_crawl_fields,
     _merge_profile_patch,
     _missing_profile_fields,
     _truncate_progress_value,
@@ -31,8 +32,14 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
 
     assert _missing_profile_fields(profile) == [
         "legal_form",
-        "description",
         "phone",
+        "email",
+        "country",
+    ]
+    assert _missing_crawl_fields(profile) == [
+        "legal_form",
+        "phone",
+        "description",
         "email",
         "country",
     ]
@@ -44,7 +51,9 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
 
 def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
     schema = PageExtraction.model_json_schema()
+    patch_properties = schema["$defs"]["WebsiteOrganizationProfilePatch"]["properties"]
 
+    assert "description" not in patch_properties
     assert "legal_address" not in str(schema)
     assert "official_company_name" not in str(schema)
     assert "queried_name" not in str(schema)

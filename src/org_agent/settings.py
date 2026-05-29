@@ -10,6 +10,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from org_agent.models import AppConfig, RegistryEndpointConfig
 
 
+DEFAULT_DESCRIPTION_SYSTEM_PROMPT = (
+    "Formuliere eine neutrale, sachliche Kurzbeschreibung auf Deutsch für eine "
+    "Unternehmensdatenbank. Die Beschreibung muss zwingend in der Form beginnen: "
+    "'[Account Name] beschäftigt sich mit …'. Verzichte auf werbliche Sprache und "
+    "Superlative. Nenne sachlich, womit sich das Unternehmen oder die Organisation "
+    "befasst. Die Ausgabe muss zwingend in deutscher Sprache sein. Gebe ausschliesslich "
+    "die Beschreibung aus, ohne Kommentare oder Zusätze ."
+)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -31,6 +41,10 @@ class Settings(BaseSettings):
     crawl_log_dir: str | None = Field(default=None, alias="ORG_AGENT_CRAWL_LOG_DIR")
     playwright_headless: bool = Field(default=True, alias="ORG_AGENT_PLAYWRIGHT_HEADLESS")
     playwright_slow_mo: int = Field(default=0, alias="ORG_AGENT_PLAYWRIGHT_SLOW_MO")
+    description_system_prompt: str = Field(
+        default=DEFAULT_DESCRIPTION_SYSTEM_PROMPT,
+        alias="ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT",
+    )
 
     def __init__(self, **data: object) -> None:
         env_path = find_dotenv(usecwd=True)
