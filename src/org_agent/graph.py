@@ -5,12 +5,14 @@ import re
 from csv import reader as csv_reader
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypeVar
 
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from langgraph.graph import END, StateGraph
+from pydantic import BaseModel, ValidationError
 
 from org_agent.llm import build_chat_model
 from org_agent.models import (
@@ -41,6 +43,8 @@ from org_agent.website import (
     report_crawl_tree,
     without_fragment,
 )
+
+StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 
 EXTRACTABLE_PROFILE_FIELDS = (
@@ -422,10 +426,10 @@ async def _extract_page_info(
     try:
         structured_llm = llm.with_structured_output(PageExtraction)
         result = await structured_llm.ainvoke(messages)
-        return result if isinstance(result, PageExtraction) else PageExtraction.model_validate(result)
+        return _parse_structured_result(result, PageExtraction, parser)
     except Exception as exc:  # noqa: BLE001
         report(progress, "website", f"Structured extraction failed; retrying with JSON prompt. {exc}")
-        return await _retry_json_parse(llm, parser, messages, progress=progress)
+        return await _retry_json_parse(llm, PageExtraction, parser, messages, progress=progress)
 
 
 async def _extract_description(
@@ -503,7 +507,7 @@ async def _extract_industries(
         selection = _parse_industry_selection_result(result, parser)
     except Exception as exc:  # noqa: BLE001
         report(progress, "website", f"Structured industry selection failed; retrying with JSON prompt. {exc}")
-        selection = await _retry_json_parse(llm, parser, messages, progress=progress)
+        selection = await _retry_json_parse(llm, IndustrySelection, parser, messages, progress=progress)
 
     return _validate_selected_industries(selection.industries, industries, max_count)
 
@@ -549,12 +553,7 @@ def _parse_industry_selection_result(
     result: object,
     parser: PydanticOutputParser,
 ) -> IndustrySelection:
-    if isinstance(result, IndustrySelection):
-        return result
-    if isinstance(result, dict):
-        return IndustrySelection.model_validate(result)
-    content = getattr(result, "content", result)
-    return parser.parse(str(content))
+    return _parse_structured_result(result, IndustrySelection, parser)
 
 
 def _validate_selected_industries(
@@ -615,7 +614,7 @@ async def _select_next_links(
         decision = _parse_crawl_decision_result(result, parser)
     except Exception as exc:  # noqa: BLE001
         report(progress, "website", f"Structured link selection failed; retrying with JSON prompt. {exc}")
-        decision = await _retry_json_parse(llm, parser, messages, progress=progress)
+        decision = await _retry_json_parse(llm, CrawlDecision, parser, messages, progress=progress)
     decision.selected_urls = decision.selected_urls[:3]
     report(progress, "website", f"LLM link selection returned {len(decision.selected_urls)} URL(s).")
     return decision
@@ -628,23 +627,19 @@ def _link_selection_llm(llm: BaseChatModel):
 
 
 def _parse_crawl_decision_result(result: object, parser: PydanticOutputParser) -> CrawlDecision:
-    if isinstance(result, CrawlDecision):
-        return result
-    if isinstance(result, dict):
-        return CrawlDecision.model_validate(result)
-    content = getattr(result, "content", result)
-    return parser.parse(str(content))
+    return _parse_structured_result(result, CrawlDecision, parser)
 
 
 async def _retry_json_parse(
     llm: BaseChatModel,
+    model_type: type[StructuredModel],
     parser: PydanticOutputParser,
     messages: list,
     progress: ProgressCallback | None = None,
-) -> PageExtraction | CrawlDecision | IndustrySelection:
+) -> StructuredModel:
     response = await llm.ainvoke(messages)
     try:
-        return parser.parse(str(response.content))
+        return _parse_structured_result(response, model_type, parser)
     except OutputParserException:
         report(progress, "website", "Repairing invalid JSON response...")
         repair_response = await llm.ainvoke(
@@ -663,7 +658,45 @@ async def _retry_json_parse(
                 ),
             ]
         )
-        return parser.parse(str(repair_response.content))
+        return _parse_structured_result(repair_response, model_type, parser)
+
+
+def _parse_structured_result(
+    result: object,
+    model_type: type[StructuredModel],
+    parser: PydanticOutputParser,
+) -> StructuredModel:
+    if isinstance(result, model_type):
+        return result
+    if isinstance(result, dict):
+        return _model_validate_with_properties_fallback(model_type, result)
+
+    content = getattr(result, "content", result)
+    try:
+        return parser.parse(str(content))
+    except OutputParserException as exc:
+        try:
+            parsed_content = json.loads(str(content))
+        except json.JSONDecodeError:
+            raise exc
+        if isinstance(parsed_content, dict) and "properties" in parsed_content:
+            try:
+                return model_type.model_validate(parsed_content["properties"])
+            except ValidationError:
+                raise exc
+        raise exc
+
+
+def _model_validate_with_properties_fallback(
+    model_type: type[StructuredModel],
+    result: dict,
+) -> StructuredModel:
+    try:
+        return model_type.model_validate(result)
+    except ValidationError:
+        if "properties" in result:
+            return model_type.model_validate(result["properties"])
+        raise
 
 
 def _merge_profile_patch(

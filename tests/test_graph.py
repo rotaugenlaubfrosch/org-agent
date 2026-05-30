@@ -1,3 +1,5 @@
+from langchain_core.output_parsers import PydanticOutputParser
+
 from org_agent.graph import (
     NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
     NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE,
@@ -10,12 +12,17 @@ from org_agent.graph import (
     _missing_crawl_fields,
     _merge_profile_patch,
     _missing_profile_fields,
+    _parse_crawl_decision_result,
+    _parse_industry_selection_result,
+    _parse_structured_result,
     _truncate_progress_value,
     _validate_selected_industries,
 )
 from org_agent.models import (
     AppConfig,
+    CrawlDecision,
     EvidenceEntry,
+    IndustrySelection,
     OrganizationProfile,
     OrganizationProfilePatch,
     PageExtraction,
@@ -37,6 +44,71 @@ def test_validate_selected_industries_keeps_only_canonical_values() -> None:
         ["AgroTech", "Metallurgy"],
         2,
     ) == ["AgroTech", "Metallurgy"]
+
+
+def test_parse_industry_selection_accepts_schema_like_properties_wrapper() -> None:
+    parser = PydanticOutputParser(pydantic_object=IndustrySelection)
+
+    selection = _parse_industry_selection_result(
+        {
+            "properties": {
+                "industries": ["Food Processing", "Consumer Goods"],
+                "reasoning": "Selected based on snacks production.",
+            },
+            "required": ["reasoning"],
+        },
+        parser,
+    )
+
+    assert selection.industries == ["Food Processing", "Consumer Goods"]
+    assert selection.reasoning == "Selected based on snacks production."
+
+
+def test_parse_crawl_decision_accepts_schema_like_properties_wrapper() -> None:
+    parser = PydanticOutputParser(pydantic_object=CrawlDecision)
+
+    decision = _parse_crawl_decision_result(
+        {
+            "properties": {
+                "is_complete": False,
+                "selected_urls": ["https://example.com/about"],
+                "reasoning": "The about page is likely useful.",
+            },
+        },
+        parser,
+    )
+
+    assert decision.is_complete is False
+    assert decision.selected_urls == ["https://example.com/about"]
+    assert decision.reasoning == "The about page is likely useful."
+
+
+def test_parse_page_extraction_accepts_schema_like_properties_wrapper() -> None:
+    parser = PydanticOutputParser(pydantic_object=PageExtraction)
+
+    extraction = _parse_structured_result(
+        {
+            "properties": {
+                "profile_patch": {"address": "Example Street 1"},
+                "evidence": [
+                    {
+                        "field": "address",
+                        "value": "Example Street 1",
+                        "reasoning": "Found on the contact page.",
+                    }
+                ],
+                "missing_fields": ["email"],
+                "reasoning": "Extracted address from page content.",
+            },
+        },
+        PageExtraction,
+        parser,
+    )
+
+    assert extraction.profile_patch.address == "Example Street 1"
+    assert [entry.field for entry in extraction.evidence] == ["address"]
+    assert extraction.missing_fields == ["email"]
+    assert extraction.reasoning == "Extracted address from page content."
 
 
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
