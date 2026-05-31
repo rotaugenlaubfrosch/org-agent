@@ -20,6 +20,7 @@ async def query_registries(
     app_config: AppConfig,
     timeout: float,
     progress: ProgressCallback | None = None,
+    scope: str = "registry",
 ) -> list[RegistryResult]:
     results: list[RegistryResult] = []
     enabled_registries = [registry for registry in app_config.registries if registry.enabled]
@@ -27,16 +28,16 @@ async def query_registries(
     async with httpx.AsyncClient(timeout=timeout) as client:
         for registry in enabled_registries:
             try:
-                report(progress, "registry", f"Querying {registry.name}: {registry.base_url}")
+                report(progress, scope, f"Querying {registry.name}: {registry.base_url}")
                 provider = (registry.provider or "").lower().strip()
                 if provider == "zefix" or registry.name.lower().strip() == "zefix":
                     result = await _query_zefix(client, name)
                 else:
                     result = await _query_generic_registry(client, registry, name)
-                report(progress, "registry", f"{registry.name} responded with HTTP {result.status_code}.")
+                report(progress, scope, f"{registry.name} responded with HTTP {result.status_code}.")
                 results.append(result)
             except Exception as exc:  # noqa: BLE001 - registry failures should not abort lookup
-                report(progress, "registry", f"{registry.name} failed: {exc}")
+                report(progress, scope, f"{registry.name} failed: {exc}")
                 results.append(
                     RegistryResult(
                         registry=registry.name,

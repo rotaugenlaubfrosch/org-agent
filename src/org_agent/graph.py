@@ -89,55 +89,61 @@ def build_graph(
     industry_selection_parser = PydanticOutputParser(pydantic_object=IndustrySelection)
 
     async def initialize(state: AgentState) -> AgentState:
-        report(progress, "input", f"Looking up: {state.input.name}")
+        report(progress, "initialize", f"Looking up: {state.input.name}")
         state.website = str(state.input.website) if state.input.website else None
         if state.website:
-            report(progress, "input", f"Using provided website: {state.website}")
+            report(progress, "initialize", f"Using provided website: {state.website}")
         state.profile = OrganizationProfile(queried_name=state.input.name, website=state.website)
         return state
 
     async def discover_website(state: AgentState) -> AgentState:
         if state.website:
-            report(progress, "search", "Skipped website discovery because --website was provided.")
+            report(progress, "discover_website", "Skipped website discovery because --website was provided.")
             return state
 
         try:
             query = f"{state.input.name} official website"
-            report(progress, "search", f"Searching for official website: {query}")
+            report(progress, "discover_website", f"Searching for official website: {query}")
             state.search_results = await search_provider.search(query)
-            report(progress, "search", f"Received {len(state.search_results)} search result(s).")
+            report(progress, "discover_website", f"Received {len(state.search_results)} search result(s).")
             for result in state.search_results[:3]:
-                report(progress, "search", f"Candidate: {result.title} -> {result.url}")
+                report(progress, "discover_website", f"Candidate: {result.title} -> {result.url}")
             state.website = _choose_website(state.search_results)
             if state.profile and state.website:
                 state.profile.website = state.website
             if state.website is None:
                 state.errors.append("No website was provided and search did not find a usable candidate.")
-                report(progress, "search", "No usable website candidate was selected.")
+                report(progress, "discover_website", "No usable website candidate was selected.")
             else:
-                report(progress, "search", f"Selected website candidate: {state.website}")
+                report(progress, "discover_website", f"Selected website candidate: {state.website}")
         except Exception as exc:  # noqa: BLE001 - keep stateful error context for CLI output
             state.errors.append(f"Website discovery failed: {exc}")
-            report(progress, "search", f"Website discovery failed: {exc}")
+            report(progress, "discover_website", f"Website discovery failed: {exc}")
         return state
 
     async def call_registries(state: AgentState) -> AgentState:
         enabled_count = sum(1 for registry in app_config.registries if registry.enabled)
         if enabled_count == 0:
+            report(
+                progress,
+                "call_registries",
+                "Skipped registry lookup because no registries are enabled.",
+            )
             return state
-            report(progress, "registry", f"Querying {enabled_count} configured registry endpoint(s).")
+        report(progress, "call_registries", f"Querying {enabled_count} configured registry endpoint(s).")
         state.registry_results = await query_registries(
             state.input.name,
             app_config,
             settings.request_timeout,
             progress=progress,
+            scope="call_registries",
         )
         if state.profile is not None:
             for result in state.registry_results:
                 filled_fields = _merge_profile_patch(state.profile, result.profile_patch)
-                _report_filled_fields(progress, "registry", filled_fields)
+                _report_filled_fields(progress, "call_registries", filled_fields)
                 _extend_evidence_dedup(state.profile.evidence, result.evidence)
-        report(progress, "registry", f"Collected {len(state.registry_results)} registry result(s).")
+        report(progress, "call_registries", f"Collected {len(state.registry_results)} registry result(s).")
         return state
 
     async def seed_crawl(state: AgentState) -> AgentState:
@@ -179,6 +185,7 @@ def build_graph(
             headless=settings.playwright_headless,
             slow_mo=settings.playwright_slow_mo,
             progress=progress,
+            scope="crawl_page",
         )
         if error or page is None:
             node.status = "skipped"
@@ -208,7 +215,13 @@ def build_graph(
             root_url=state.website,
             current_url=state.current_page.url,
         )
-        _report_candidate_links(progress, state.current_page.url, state.candidate_links, len(state.raw_links))
+        _report_candidate_links(
+            progress,
+            "filter_links",
+            state.current_page.url,
+            state.candidate_links,
+            len(state.raw_links),
+        )
         return state
 
     async def analyze_page(state: AgentState) -> AgentState:
@@ -225,15 +238,16 @@ def build_graph(
                 state.current_page,
                 state.registry_results,
                 progress,
+                "analyze_page",
             )
             _keep_requested_extraction_fields(extraction, requested_fields)
             _set_website_evidence_source(extraction.evidence, state.current_page.url)
         else:
             extraction = PageExtraction(reasoning="No missing profile fields remain before this page.")
         filled_fields = _merge_profile_patch(state.profile, extraction.profile_patch)
-        _report_filled_fields(progress, "website", filled_fields)
+        _report_filled_fields(progress, "analyze_page", filled_fields)
         _extend_evidence_dedup(state.profile.evidence, extraction.evidence)
-        report(progress, "website", f"Extraction: {extraction.reasoning}")
+        report(progress, "analyze_page", f"Extraction: {extraction.reasoning}")
 
         if state.profile.description in {None, ""}:
             description = await _extract_description(
@@ -242,11 +256,12 @@ def build_graph(
                 state.input.name,
                 state.current_page,
                 progress,
+                "analyze_page",
             )
             was_empty = state.profile.description in {None, ""}
             state.profile.description = description
             if was_empty and description not in {None, ""}:
-                _report_filled_fields(progress, "website", [("description", description)])
+                _report_filled_fields(progress, "analyze_page", [("description", description)])
             state.profile.evidence.append(
                 EvidenceEntry(
                     field="description",
@@ -265,11 +280,12 @@ def build_graph(
                 settings.max_industries,
                 settings.industry_shortlist_size,
                 progress,
+                "analyze_page",
             )
             if industries:
                 industry_value = ", ".join(industries)
                 state.profile.industry = industry_value
-                _report_filled_fields(progress, "website", [("industry", industry_value)])
+                _report_filled_fields(progress, "analyze_page", [("industry", industry_value)])
                 state.profile.evidence.append(
                     EvidenceEntry(
                         field="industry",
@@ -288,10 +304,11 @@ def build_graph(
             remaining_missing_fields,
             state.candidate_links,
             progress,
+            "analyze_page",
         )
 
         selected_urls = _normalize_selected_urls(decision.selected_urls[:3], state.candidate_links)
-        _report_selected_links(progress, state.candidate_links, selected_urls)
+        _report_selected_links(progress, "analyze_page", state.candidate_links, selected_urls)
         analysis = PageAnalysis(
             profile_patch=OrganizationProfilePatch.model_validate(extraction.profile_patch.model_dump()),
             evidence=extraction.evidence,
@@ -303,7 +320,7 @@ def build_graph(
         state.page_analysis = analysis
         node = _crawl_node(state, state.current_crawl_node_id)
         node.reason = extraction.reasoning
-        _report_page_analysis(progress, analysis)
+        _report_page_analysis(progress, "analyze_page", analysis)
 
         if state.current_crawl_depth < settings.crawl_max_depth:
             for link in state.candidate_links:
@@ -340,13 +357,13 @@ def build_graph(
         if state.website and not state.profile.website:
             state.profile.website = state.website
         _fill_registry_only_field_messages(state.profile, app_config)
-        _write_crawl_text_logs(state, settings, progress)
+        _write_crawl_text_logs(state, settings, progress, "finalize_profile")
         for error in state.errors:
             state.profile.evidence.append(
                 EvidenceEntry(field="general", value=None, source="agent", reasoning=error)
             )
-        report_crawl_tree(state.crawl_nodes, progress)
-        report(progress, "extract", "Extraction complete.")
+        report_crawl_tree(state.crawl_nodes, progress, scope="finalize_profile")
+        report(progress, "finalize_profile", "Extraction complete.")
         return state
 
     graph = StateGraph(AgentState)
@@ -404,6 +421,7 @@ async def _extract_page_info(
     current_page: WebsitePage,
     registry_results: list,
     progress: ProgressCallback | None,
+    scope: str,
 ) -> PageExtraction:
     formatted_fields = "\n".join(f"- {field}" for field in requested_fields)
     prompt = (
@@ -431,8 +449,8 @@ async def _extract_page_info(
         result = await structured_llm.ainvoke(messages)
         return _parse_structured_result(result, PageExtraction, parser)
     except Exception as exc:  # noqa: BLE001
-        report(progress, "website", f"Structured extraction failed; retrying with JSON prompt. {exc}")
-        return await _retry_json_parse(llm, PageExtraction, parser, messages, progress=progress)
+        report(progress, scope, f"Structured extraction failed; retrying with JSON prompt. {exc}")
+        return await _retry_json_parse(llm, PageExtraction, parser, messages, progress=progress, scope=scope)
 
 
 async def _extract_description(
@@ -441,13 +459,14 @@ async def _extract_description(
     organization_name: str,
     current_page: WebsitePage,
     progress: ProgressCallback | None,
+    scope: str,
 ) -> str:
     prompt = system_prompt.replace("[Account Name]", organization_name)
     messages = [
         SystemMessage(content=prompt),
         HumanMessage(content=current_page.text),
     ]
-    report(progress, "website", "Calling LLM for description...")
+    report(progress, scope, "Calling LLM for description...")
     response = await llm.ainvoke(messages)
     return str(response.content)
 
@@ -460,6 +479,7 @@ async def _extract_industries(
     max_industries: int,
     shortlist_size: int,
     progress: ProgressCallback | None,
+    scope: str,
 ) -> list[str]:
     industries = _load_industries(Path(industries_csv))
     if not industries:
@@ -471,20 +491,20 @@ async def _extract_industries(
     if len(industries) > shortlist_count:
         report(
             progress,
-            "website",
+            scope,
             f"More than {shortlist_count} industries were found in {industries_csv}. "
             "Therefore, industries are pre-filtered.",
         )
         report(
             progress,
-            "website",
+            scope,
             f"Shortlisting {shortlist_count} of {len(industries)} configured industries...",
         )
         candidates = _shortlist_industries_by_embedding(description, industries, shortlist_count)
     else:
         report(
             progress,
-            "website",
+            scope,
             f"{shortlist_count} or fewer industries were found in {industries_csv}. "
             "Therefore, industries are not pre-filtered.",
         )
@@ -504,13 +524,20 @@ async def _extract_industries(
         HumanMessage(content=prompt),
     ]
     try:
-        report(progress, "website", "Calling LLM for industry selection...")
+        report(progress, scope, "Calling LLM for industry selection...")
         industry_llm = _industry_selection_llm(llm)
         result = await industry_llm.ainvoke(messages)
         selection = _parse_industry_selection_result(result, parser)
     except Exception as exc:  # noqa: BLE001
-        report(progress, "website", f"Structured industry selection failed; retrying with JSON prompt. {exc}")
-        selection = await _retry_json_parse(llm, IndustrySelection, parser, messages, progress=progress)
+        report(progress, scope, f"Structured industry selection failed; retrying with JSON prompt. {exc}")
+        selection = await _retry_json_parse(
+            llm,
+            IndustrySelection,
+            parser,
+            messages,
+            progress=progress,
+            scope=scope,
+        )
 
     return _validate_selected_industries(selection.industries, industries, max_count)
 
@@ -582,13 +609,14 @@ async def _select_next_links(
     missing_fields: list[str],
     candidate_links: list[WebsiteLink],
     progress: ProgressCallback | None,
+    scope: str,
 ) -> CrawlDecision:
     available_links = [link.model_dump() for link in candidate_links[:LINK_SELECTION_MAX_CANDIDATES]]
     formatted_missing_fields = "\n".join(f"- {field}" for field in missing_fields) or "- none"
     missing_summary = ", ".join(missing_fields) or "none"
     report(
         progress,
-        "website",
+        scope,
         f"Selecting next links from {len(available_links)} candidate(s); missing fields: {missing_summary}",
     )
     prompt = (
@@ -611,15 +639,22 @@ async def _select_next_links(
         HumanMessage(content=prompt),
     ]
     try:
-        report(progress, "website", "Calling LLM for link selection...")
+        report(progress, scope, "Calling LLM for link selection...")
         structured_llm = _link_selection_llm(llm)
         result = await structured_llm.ainvoke(messages)
         decision = _parse_crawl_decision_result(result, parser)
     except Exception as exc:  # noqa: BLE001
-        report(progress, "website", f"Structured link selection failed; retrying with JSON prompt. {exc}")
-        decision = await _retry_json_parse(llm, CrawlDecision, parser, messages, progress=progress)
+        report(progress, scope, f"Structured link selection failed; retrying with JSON prompt. {exc}")
+        decision = await _retry_json_parse(
+            llm,
+            CrawlDecision,
+            parser,
+            messages,
+            progress=progress,
+            scope=scope,
+        )
     decision.selected_urls = decision.selected_urls[:3]
-    report(progress, "website", f"LLM link selection returned {len(decision.selected_urls)} URL(s).")
+    report(progress, scope, f"LLM link selection returned {len(decision.selected_urls)} URL(s).")
     return decision
 
 
@@ -639,12 +674,13 @@ async def _retry_json_parse(
     parser: PydanticOutputParser,
     messages: list,
     progress: ProgressCallback | None = None,
+    scope: str = "analyze_page",
 ) -> StructuredModel:
     response = await llm.ainvoke(messages)
     try:
         return _parse_structured_result(response, model_type, parser)
     except OutputParserException:
-        report(progress, "website", "Repairing invalid JSON response...")
+        report(progress, scope, "Repairing invalid JSON response...")
         repair_response = await llm.ainvoke(
             [
                 SystemMessage(
@@ -799,6 +835,7 @@ def _write_crawl_text_logs(
     state: AgentState,
     settings: Settings,
     progress: ProgressCallback | None,
+    scope: str,
 ) -> None:
     if not settings.crawl_log_enabled or not settings.crawl_log_dir or not state.website_pages:
         return
@@ -812,7 +849,7 @@ def _write_crawl_text_logs(
         page_path = run_dir / f"{index:03d}-{page_slug}.txt"
         page_path.write_text(_format_page_log(page), encoding="utf-8")
 
-    report(progress, "website", f"Saved crawl text logs to {run_dir}")
+    report(progress, scope, f"Saved crawl text logs to {run_dir}")
 
 
 def _format_page_log(page: WebsitePage) -> str:
@@ -872,6 +909,7 @@ def _normalize_selected_urls(selected_urls: list[str], links: list[WebsiteLink])
 
 def _report_candidate_links(
     progress: ProgressCallback | None,
+    scope: str,
     page_url: str,
     links: list[WebsiteLink],
     raw_count: int,
@@ -880,35 +918,41 @@ def _report_candidate_links(
         return
     report(
         progress,
-        "website",
-        f"Links given to LLM from {page_url}: {len(links)} candidate(s), filtered from {raw_count} raw link(s).",
+        scope,
+        "Filtered and ordered links given to LLM in analyze_page node "
+        f"from {page_url}: {len(links)} candidate(s), filtered from {raw_count} raw link(s).",
     )
-    report(progress, "website", f"Configured link keywords: {', '.join(INFORMATION_LINK_SIGNALS)}")
+    report(progress, scope, f"Configured link keywords: {', '.join(INFORMATION_LINK_SIGNALS)}")
     if not links:
-        report(progress, "website", "  No candidate links.")
+        report(progress, scope, "  No candidate links.")
         return
     for index, link in enumerate(links[:LINK_SELECTION_MAX_CANDIDATES], start=1):
-        report(progress, "website", f"  [{index}] {link.text} -> {link.url} ({link.area})")
+        report(progress, scope, f"  [{index}] {link.text} -> {link.url} ({link.area})")
 
 
 def _report_selected_links(
     progress: ProgressCallback | None,
+    scope: str,
     links: list[WebsiteLink],
     selected_urls: set[str],
 ) -> None:
     if progress is None:
         return
     selected_links = [link for link in links if link.url in selected_urls]
-    report(progress, "website", f"LLM selected {len(selected_links)} link(s).")
+    report(progress, scope, f"LLM selected {len(selected_links)} link(s).")
     for index, link in enumerate(selected_links, start=1):
-        report(progress, "website", f"  [{index}] {link.text} -> {link.url} ({link.area})")
+        report(progress, scope, f"  [{index}] {link.text} -> {link.url} ({link.area})")
 
 
-def _report_page_analysis(progress: ProgressCallback | None, analysis: PageAnalysis) -> None:
+def _report_page_analysis(
+    progress: ProgressCallback | None,
+    scope: str,
+    analysis: PageAnalysis,
+) -> None:
     if progress is None:
         return
-    report(progress, "website", f"Crawl decision: {analysis.reasoning}")
+    report(progress, scope, f"Crawl decision: {analysis.reasoning}")
     if analysis.missing_fields:
-        report(progress, "website", f"Missing fields: {', '.join(analysis.missing_fields)}")
+        report(progress, scope, f"Missing fields: {', '.join(analysis.missing_fields)}")
     if analysis.is_complete:
-        report(progress, "website", "LLM selected: stop crawling")
+        report(progress, scope, "LLM selected: stop crawling")

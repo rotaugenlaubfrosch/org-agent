@@ -181,6 +181,14 @@ def _make_progress_logger():
         "registry": "yellow",
         "website": "green",
         "extract": "bright_magenta",
+        "initialize": "color(51)",
+        "discover_website": "color(33)",
+        "call_registries": "green",
+        "seed_crawl": "color(45)",
+        "crawl_page": "blue",
+        "filter_links": "color(118)",
+        "analyze_page": "color(201)",
+        "finalize_profile": "yellow",
     }
 
     def log(step: str, message: str) -> None:

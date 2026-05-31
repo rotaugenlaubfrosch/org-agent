@@ -72,10 +72,11 @@ async def fetch_page_with_playwright(
     headless: bool = True,
     slow_mo: int = 0,
     progress: ProgressCallback | None = None,
+    scope: str = "website",
 ) -> tuple[WebsitePage | None, list[WebsiteLink], str | None]:
     try:
-        report(progress, "website", "===")
-        report(progress, "website", f"Checking: {url}")
+        report(progress, scope, "===")
+        report(progress, scope, f"Checking: {url}")
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=headless, slow_mo=slow_mo)
             context = await browser.new_context(ignore_https_errors=True)
@@ -136,7 +137,11 @@ def without_fragment(url: str) -> str:
     return _without_fragment(url)
 
 
-def report_crawl_tree(nodes: list[CrawlNode], progress: ProgressCallback | None) -> None:
+def report_crawl_tree(
+    nodes: list[CrawlNode],
+    progress: ProgressCallback | None,
+    scope: str = "website",
+) -> None:
     if progress is None:
         return
 
@@ -145,9 +150,9 @@ def report_crawl_tree(nodes: list[CrawlNode], progress: ProgressCallback | None)
         children.setdefault(node.parent_id, []).append(node)
 
     input_count = sum(1 for node in nodes if node.status == "captured")
-    report(progress, "website", f"Crawl tree: {input_count} page(s) selected as LLM input")
+    report(progress, scope, f"Crawl tree: {input_count} page(s) selected as LLM input")
     for root in children.get(None, []):
-        _report_node(root, children, progress, prefix="", is_last=True)
+        _report_node(root, children, progress, scope=scope, prefix="", is_last=True)
 
 
 async def _settle_page(page) -> None:
@@ -286,11 +291,12 @@ def _report_node(
     node: CrawlNode,
     children: dict[int | None, list[CrawlNode]],
     progress: ProgressCallback | None,
+    scope: str,
     prefix: str,
     is_last: bool,
 ) -> None:
     connector = "`-- " if is_last else "|-- "
-    report(progress, "website", f"{prefix}{connector}{_format_node(node)}")
+    report(progress, scope, f"{prefix}{connector}{_format_node(node)}")
     child_prefix = f"{prefix}{'    ' if is_last else '|   '}"
     child_nodes = children.get(node.id, [])
     for index, child in enumerate(child_nodes):
@@ -298,6 +304,7 @@ def _report_node(
             child,
             children,
             progress,
+            scope=scope,
             prefix=child_prefix,
             is_last=index == len(child_nodes) - 1,
         )
