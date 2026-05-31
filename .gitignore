@@ -4,8 +4,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 experiments/ground_truth.jsonl
+src/org-agent/data/industries.csv
 dist/
 *.egg-info/
 playwright-report/
 logs/*
 !logs/.gitkeep
+opencode.json
