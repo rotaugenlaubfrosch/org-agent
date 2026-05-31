@@ -137,12 +137,15 @@ The crawler:
 - extracts visible body text
 - extracts actual links from the page
 - removes obvious junk links such as carts, login pages, product detail pages, campaigns, and social media
+- keeps links with organization-information signals in the link text or URL, such as contact, imprint/legal, privacy, company/about, story, or terms
+- orders filtered links so links with configured keywords in their visible link text are shown first, preserving page order within each group
+- sends at most the first 25 filtered and ordered candidate links to the LLM for link selection
 - asks the LLM to update the partial profile from the current page
 - asks the LLM whether enough information has been collected
 - asks the LLM which remaining candidate links should be visited next, prioritizing links likely to contain fields that are still missing
 - repeats page-by-page up to the configured crawl limits
 
-The crawl uses a hybrid approach. Deterministic filtering removes obvious noise before the LLM sees the links, including shopping, account/login, product detail, campaign, social media, and static asset links. Candidate links must also contain an organization-information signal such as contact, imprint/legal, privacy, company/about, story, or terms. The LLM extracts profile data from the current page, then receives the filtered candidate links and the fields still missing from the profile. It selects up to three actual discovered URLs most likely to contain that missing company information. The crawler processes queued links in breadth-first order and does not invent `/contact` or `/impressum` paths.
+The crawl uses a hybrid approach. Deterministic filtering removes obvious noise before the LLM sees the links, including shopping, account/login, product detail, campaign, social media, and static asset links. Candidate links must contain an organization-information signal in the URL or visible link text, such as contact, imprint/legal, privacy, company/about, story, or terms. After filtering, candidate links whose visible text contains one of the configured link keywords are placed first while preserving original page order within each group. The LLM then receives at most the first 25 filtered and ordered candidate links plus the fields still missing from the profile. It selects up to three actual discovered URLs most likely to contain that missing company information. The crawler processes queued links in breadth-first order and does not invent `/contact` or `/impressum` paths.
 
 The `description` and `industry` fields use dedicated prompts instead of the generic page extraction prompt. `description` is generated from the current crawled page text using `ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT`. After description generation, `industry` is selected from `ORG_AGENT_INDUSTRIES_CSV`. The industries CSV is a headerless comma-separated list, for example `Additive Manufacturing,Metal-Organic Frameworks (MOF),Advanced Manufacturing`. If the list contains more entries than `ORG_AGENT_INDUSTRY_SHORTLIST_SIZE`, the generated description and industry labels are embedded with `intfloat/multilingual-e5-small`, the closest configured industries are shortlisted, and the LLM chooses at most `ORG_AGENT_MAX_INDUSTRIES`. Returned industries are accepted only if they exactly match entries from the CSV.
 
