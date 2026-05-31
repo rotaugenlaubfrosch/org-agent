@@ -51,3 +51,31 @@ def test_filter_candidate_links_removes_shop_and_keeps_info_links() -> None:
     assert "https://www.zweifel.ch/ch_de/impressum/" in candidate_urls
     assert "https://www.zweifel.ch/ch_de/datenschutzerklaerung/" in candidate_urls
     assert "https://www.zweifel.ch/ch_de/unternehmen/" in candidate_urls
+
+
+def test_filter_candidate_links_orders_text_keyword_matches_first() -> None:
+    links = [
+        WebsiteLink(
+            url="https://example.com/contact",
+            text="Reach us",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://example.com/team",
+            text="Contact",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://example.com/company",
+            text="About us",
+            area="navigation",
+        ),
+    ]
+
+    candidates = filter_candidate_links(
+        links,
+        root_url="https://example.com",
+        current_url="https://example.com",
+    )
+
+    assert [link.text for link in candidates] == ["Contact", "About us", "Reach us"]

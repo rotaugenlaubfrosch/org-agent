@@ -37,6 +37,7 @@ from org_agent.registry import query_registries
 from org_agent.search import build_search_provider
 from org_agent.settings import Settings
 from org_agent.website import (
+    INFORMATION_LINK_SIGNALS,
     fetch_page_with_playwright,
     filter_candidate_links,
     normalize_url,
@@ -57,6 +58,7 @@ EXTRACTABLE_PROFILE_FIELDS = (
 
 DESCRIPTION_PROFILE_FIELD = "description"
 INDUSTRY_PROFILE_FIELD = "industry"
+LINK_SELECTION_MAX_CANDIDATES = 25
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
@@ -289,6 +291,7 @@ def build_graph(
         )
 
         selected_urls = _normalize_selected_urls(decision.selected_urls[:3], state.candidate_links)
+        _report_selected_links(progress, state.candidate_links, selected_urls)
         analysis = PageAnalysis(
             profile_patch=OrganizationProfilePatch.model_validate(extraction.profile_patch.model_dump()),
             evidence=extraction.evidence,
@@ -580,7 +583,7 @@ async def _select_next_links(
     candidate_links: list[WebsiteLink],
     progress: ProgressCallback | None,
 ) -> CrawlDecision:
-    available_links = [link.model_dump() for link in candidate_links[:80]]
+    available_links = [link.model_dump() for link in candidate_links[:LINK_SELECTION_MAX_CANDIDATES]]
     formatted_missing_fields = "\n".join(f"- {field}" for field in missing_fields) or "- none"
     missing_summary = ", ".join(missing_fields) or "none"
     report(
@@ -880,10 +883,24 @@ def _report_candidate_links(
         "website",
         f"Links given to LLM from {page_url}: {len(links)} candidate(s), filtered from {raw_count} raw link(s).",
     )
+    report(progress, "website", f"Configured link keywords: {', '.join(INFORMATION_LINK_SIGNALS)}")
     if not links:
         report(progress, "website", "  No candidate links.")
         return
-    for index, link in enumerate(links[:80], start=1):
+    for index, link in enumerate(links[:LINK_SELECTION_MAX_CANDIDATES], start=1):
+        report(progress, "website", f"  [{index}] {link.text} -> {link.url} ({link.area})")
+
+
+def _report_selected_links(
+    progress: ProgressCallback | None,
+    links: list[WebsiteLink],
+    selected_urls: set[str],
+) -> None:
+    if progress is None:
+        return
+    selected_links = [link for link in links if link.url in selected_urls]
+    report(progress, "website", f"LLM selected {len(selected_links)} link(s).")
+    for index, link in enumerate(selected_links, start=1):
         report(progress, "website", f"  [{index}] {link.text} -> {link.url} ({link.area})")
 
 
@@ -895,10 +912,3 @@ def _report_page_analysis(progress: ProgressCallback | None, analysis: PageAnaly
         report(progress, "website", f"Missing fields: {', '.join(analysis.missing_fields)}")
     if analysis.is_complete:
         report(progress, "website", "LLM selected: stop crawling")
-        return
-    if not analysis.selected_urls:
-        report(progress, "website", "LLM selected: no links")
-        return
-    report(progress, "website", "LLM selected link(s):")
-    for index, url in enumerate(analysis.selected_urls, start=1):
-        report(progress, "website", f"  [{index}] {url}")

@@ -74,6 +74,7 @@ async def fetch_page_with_playwright(
     progress: ProgressCallback | None = None,
 ) -> tuple[WebsitePage | None, list[WebsiteLink], str | None]:
     try:
+        report(progress, "website", "===")
         report(progress, "website", f"Checking: {url}")
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=headless, slow_mo=slow_mo)
@@ -119,7 +120,12 @@ def filter_candidate_links(
         if not (_same_site(root_url, url) or _same_site(current_url, url) or _looks_official_external(link)):
             continue
         candidates.setdefault(url, WebsiteLink(url=url, text=link.text, area=link.area))
-    return list(candidates.values())
+    return sorted(candidates.values(), key=_link_text_signal_sort_key)
+
+
+def _link_text_signal_sort_key(link: WebsiteLink) -> int:
+    text = link.text.lower()
+    return 0 if any(signal in text for signal in INFORMATION_LINK_SIGNALS) else 1
 
 
 def normalize_url(url: str) -> str:
