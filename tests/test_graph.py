@@ -18,6 +18,7 @@ from org_agent.graph import (
     _parse_industry_selection_result,
     _parse_structured_result,
     _truncate_progress_value,
+    _validate_profile_email,
     _validate_selected_industries,
 )
 from org_agent.models import (
@@ -30,6 +31,7 @@ from org_agent.models import (
     PageExtraction,
     RegistryEndpointConfig,
     WebsiteOrganizationProfilePatch,
+    WebsitePage,
 )
 
 
@@ -272,6 +274,54 @@ def test_normalize_profile_country_updates_profile_and_evidence() -> None:
     assert profile.country == "Switzerland"
     assert profile.evidence[0].value == "Switzerland"
     assert profile.evidence[1].value == "info@example.com"
+
+
+def test_validate_profile_email_keeps_email_present_in_website_pages() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        email=" info@example.com ",
+        evidence=[EvidenceEntry(field="email", value="info@example.com", reasoning="Found on page.")],
+    )
+    pages = [WebsitePage(url="https://example.com", text="Contact us at info@example.com.")]
+
+    _validate_profile_email(profile, pages)
+
+    assert profile.email == "info@example.com"
+    assert [entry.field for entry in profile.evidence] == ["email"]
+
+
+def test_validate_profile_email_matches_case_insensitively() -> None:
+    profile = OrganizationProfile(queried_name="Example Ltd", email="Info@Example.com")
+    pages = [WebsitePage(url="https://example.com", text="Contact: info@example.com")]
+
+    _validate_profile_email(profile, pages)
+
+    assert profile.email == "Info@Example.com"
+
+
+def test_validate_profile_email_removes_email_absent_from_website_pages() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        email="info@example.com",
+        evidence=[
+            EvidenceEntry(field="email", value="info@example.com", reasoning="Found on page."),
+            EvidenceEntry(field="country", value="Switzerland", reasoning="Found on page."),
+        ],
+    )
+    pages = [WebsitePage(url="https://example.com", text="No email address here.")]
+
+    _validate_profile_email(profile, pages)
+
+    assert profile.email is None
+    assert [entry.field for entry in profile.evidence] == ["country"]
+
+
+def test_validate_profile_email_ignores_empty_website_pages() -> None:
+    profile = OrganizationProfile(queried_name="Example Ltd", email="info@example.com")
+
+    _validate_profile_email(profile, [])
+
+    assert profile.email == "info@example.com"
 
 
 def test_truncate_progress_value_appends_ellipsis_at_limit() -> None:

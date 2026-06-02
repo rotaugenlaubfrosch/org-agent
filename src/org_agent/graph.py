@@ -355,6 +355,7 @@ def build_graph(
         if state.profile is None:
             return state
         _normalize_profile_country(state.profile)
+        _validate_profile_email(state.profile, state.website_pages)
         return state
 
     async def finalize_profile(state: AgentState) -> AgentState:
@@ -796,6 +797,25 @@ def _normalize_country(value: str | None) -> str | None:
         return pycountry.countries.search_fuzzy(country)[0].name
     except LookupError:
         return country
+
+
+def _validate_profile_email(profile: OrganizationProfile, website_pages: list[WebsitePage]) -> None:
+    if not profile.email or not website_pages:
+        return
+
+    email = profile.email.strip()
+    if not email:
+        profile.email = None
+        profile.evidence = [entry for entry in profile.evidence if entry.field != "email"]
+        return
+
+    source_text = "\n".join(page.text for page in website_pages).lower()
+    if email.lower() in source_text:
+        profile.email = email
+        return
+
+    profile.email = None
+    profile.evidence = [entry for entry in profile.evidence if entry.field != "email"]
 
 
 def _report_filled_fields(
