@@ -12,6 +12,8 @@ from org_agent.graph import (
     _missing_crawl_fields,
     _merge_profile_patch,
     _missing_profile_fields,
+    _normalize_country,
+    _normalize_profile_country,
     _parse_crawl_decision_result,
     _parse_industry_selection_result,
     _parse_structured_result,
@@ -240,6 +242,36 @@ def test_merge_profile_patch_returns_only_newly_filled_fields() -> None:
     assert profile.email == "new@example.com"
     assert profile.phone == "+1 555 0100"
     assert filled_fields == [("phone", "+1 555 0100")]
+
+
+def test_normalize_country_resolves_iso_codes_and_names() -> None:
+    assert _normalize_country(" CH ") == "Switzerland"
+    assert _normalize_country("CHE") == "Switzerland"
+    assert _normalize_country("switzerland") == "Switzerland"
+    assert _normalize_country("Swiss") == "Switzerland"
+
+
+def test_normalize_country_keeps_unknown_values() -> None:
+    assert _normalize_country("Atlantis") == "Atlantis"
+    assert _normalize_country(" ") is None
+    assert _normalize_country(None) is None
+
+
+def test_normalize_profile_country_updates_profile_and_evidence() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        country="CHE",
+        evidence=[
+            EvidenceEntry(field="country", value="CH", reasoning="Found on page."),
+            EvidenceEntry(field="email", value="info@example.com", reasoning="Found on page."),
+        ],
+    )
+
+    _normalize_profile_country(profile)
+
+    assert profile.country == "Switzerland"
+    assert profile.evidence[0].value == "Switzerland"
+    assert profile.evidence[1].value == "info@example.com"
 
 
 def test_truncate_progress_value_appends_ellipsis_at_limit() -> None:

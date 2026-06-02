@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
 
+import pycountry
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -350,6 +351,12 @@ def build_graph(
         state.should_continue_crawl = _should_continue_crawl(state, settings)
         return state
 
+    async def validate_profile(state: AgentState) -> AgentState:
+        if state.profile is None:
+            return state
+        _normalize_profile_country(state.profile)
+        return state
+
     async def finalize_profile(state: AgentState) -> AgentState:
         if state.profile is None:
             state.profile = OrganizationProfile(queried_name=state.input.name, website=state.website)
@@ -374,6 +381,7 @@ def build_graph(
     graph.add_node("crawl_page", crawl_page)
     graph.add_node("filter_links", filter_links)
     graph.add_node("analyze_page", analyze_page)
+    graph.add_node("validate_profile", validate_profile)
     graph.add_node("finalize_profile", finalize_profile)
     graph.set_entry_point("initialize")
     graph.add_edge("initialize", "discover_website")
@@ -384,9 +392,10 @@ def build_graph(
     graph.add_edge("filter_links", "analyze_page")
     graph.add_conditional_edges(
         "analyze_page",
-        lambda state: "crawl_page" if state.should_continue_crawl else "finalize_profile",
-        {"crawl_page": "crawl_page", "finalize_profile": "finalize_profile"},
+        lambda state: "crawl_page" if state.should_continue_crawl else "validate_profile",
+        {"crawl_page": "crawl_page", "validate_profile": "validate_profile"},
     )
+    graph.add_edge("validate_profile", "finalize_profile")
     graph.add_edge("finalize_profile", END)
     return graph.compile()
 
@@ -750,6 +759,43 @@ def _merge_profile_patch(
             if was_empty:
                 filled_fields.append((field, str(value)))
     return filled_fields
+
+
+def _normalize_profile_country(profile: OrganizationProfile) -> None:
+    profile.country = _normalize_country(profile.country)
+    for entry in profile.evidence:
+        if entry.field == "country":
+            entry.value = _normalize_country(entry.value)
+
+
+def _normalize_country(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    country = value.strip()
+    if not country:
+        return None
+
+    upper_country = country.upper()
+    if len(upper_country) == 2:
+        match = pycountry.countries.get(alpha_2=upper_country)
+        if match is not None:
+            return match.name
+
+    if len(upper_country) == 3:
+        match = pycountry.countries.get(alpha_3=upper_country)
+        if match is not None:
+            return match.name
+
+    try:
+        return pycountry.countries.lookup(country).name
+    except LookupError:
+        pass
+
+    try:
+        return pycountry.countries.search_fuzzy(country)[0].name
+    except LookupError:
+        return country
 
 
 def _report_filled_fields(
