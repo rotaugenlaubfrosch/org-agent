@@ -14,7 +14,7 @@ It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, an
 - Sends gathered evidence to an LLM.
 - Returns a structured organization profile with evidence entries.
 
-## Workflow
+## LangGraph Graph Structure
 
 ![LangGraph workflow](docs/graph.png)
 
