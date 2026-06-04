@@ -10,7 +10,7 @@ from rich.table import Table
 from org_agent.api import lookup_organization
 from org_agent.models import OrganizationProfile, profile_display_field_groups
 
-HELP_TEXT = """Enrich organization profiles from a name and optional website.
+HELP_TEXT = """Enrich organization profiles from a name and required website.
 
 Required environment variables:
 ORG_AGENT_LLM_PROVIDER=openai|anthropic|ollama
@@ -22,10 +22,6 @@ ORG_AGENT_API_KEY=<provider API key>
 Required for Ollama:
 ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
 
-Optional search environment variables:
-ORG_AGENT_SEARCH_PROVIDER=tavily|brave|none
-ORG_AGENT_SEARCH_API_KEY=<search API key for tavily/brave>
-
 Optional runtime environment variables:
 ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
 ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
@@ -36,15 +32,14 @@ ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
 ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
 Common lookup options:
-  --website <url>  Use a known official website
+  --website <url>  Required official website. Bare domains like example.com are accepted.
   --registry <id>  Enable optional registry provider (e.g. zefix)
   --json           Print raw JSON output
   --quiet          Suppress progress output
 
 Examples:
-  org-agent lookup "Example Ltd"
   org-agent lookup "Example Ltd" --website https://example.com
-  org-agent lookup "Example Ltd" --website https://example.com --quiet
+  org-agent lookup "Example Ltd" --website example.com --quiet
 """
 
 app = typer.Typer(help=HELP_TEXT, add_completion=False)
@@ -54,7 +49,7 @@ err_console = Console(stderr=True)
 
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
-    """Enrich organization profiles from a name and optional website."""
+    """Enrich organization profiles from a name and required website."""
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
         raise typer.Exit()
@@ -63,11 +58,11 @@ def main(ctx: typer.Context) -> None:
 @app.command()
 def lookup(
     name: str = typer.Argument(..., help="Organization name, assumed to be the correct name."),
-    website: str | None = typer.Option(
-        None,
+    website: str = typer.Option(
+        ...,
         "--website",
         "-w",
-        help="Known official website. If omitted, configure a search provider or registry config.",
+        help="Required official website. Bare domains like example.com are accepted.",
     ),
     config: str | None = typer.Option(
         None,
@@ -85,7 +80,7 @@ def lookup(
         False,
         "--quiet",
         "-q",
-        help="Suppress the live trace of search, registry, website crawl, and extraction steps.",
+        help="Suppress the live trace of registry, website crawl, and extraction steps.",
     ),
 ) -> None:
     """Lookup and enrich an organization profile.
@@ -100,10 +95,6 @@ def lookup(
     Required for Ollama:
     ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
 
-    Optional search configuration:
-    ORG_AGENT_SEARCH_PROVIDER=tavily|brave|none
-    ORG_AGENT_SEARCH_API_KEY=<search API key for tavily/brave>
-
     Optional runtime configuration:
     ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
     ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
@@ -114,9 +105,8 @@ def lookup(
     ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
     Examples:
-    org-agent lookup "Example Ltd"
     org-agent lookup "Example Ltd" --website https://example.com
-    org-agent lookup "Example Ltd" --website https://example.com --quiet
+    org-agent lookup "Example Ltd" --website example.com --quiet
     """
     try:
         if quiet:
@@ -177,12 +167,10 @@ def _make_progress_logger():
     styles = {
         "config": "magenta",
         "input": "cyan",
-        "search": "blue",
         "registry": "yellow",
         "website": "green",
         "extract": "bright_magenta",
         "initialize": "color(51)",
-        "discover_website": "color(33)",
         "call_registries": "green",
         "seed_crawl": "color(45)",
         "crawl_page": "blue",

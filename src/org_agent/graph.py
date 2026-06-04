@@ -29,13 +29,11 @@ from org_agent.models import (
     OrganizationProfilePatch,
     PageAnalysis,
     PageExtraction,
-    SearchResult,
     WebsiteLink,
     WebsitePage,
 )
 from org_agent.progress import ProgressCallback, report
 from org_agent.registry import query_registries
-from org_agent.search import build_search_provider
 from org_agent.settings import Settings
 from org_agent.website import (
     INFORMATION_LINK_SIGNALS,
@@ -84,7 +82,6 @@ def build_graph(
     progress: ProgressCallback | None = None,
 ):
     llm = build_chat_model(settings)
-    search_provider = build_search_provider(settings)
     page_extraction_parser = PydanticOutputParser(pydantic_object=PageExtraction)
     crawl_decision_parser = PydanticOutputParser(pydantic_object=CrawlDecision)
     industry_selection_parser = PydanticOutputParser(pydantic_object=IndustrySelection)
@@ -95,31 +92,6 @@ def build_graph(
         if state.website:
             report(progress, "initialize", f"Using provided website: {state.website}")
         state.profile = OrganizationProfile(queried_name=state.input.name, website=state.website)
-        return state
-
-    async def discover_website(state: AgentState) -> AgentState:
-        if state.website:
-            report(progress, "discover_website", "Skipped website discovery because --website was provided.")
-            return state
-
-        try:
-            query = f"{state.input.name} official website"
-            report(progress, "discover_website", f"Searching for official website: {query}")
-            state.search_results = await search_provider.search(query)
-            report(progress, "discover_website", f"Received {len(state.search_results)} search result(s).")
-            for result in state.search_results[:3]:
-                report(progress, "discover_website", f"Candidate: {result.title} -> {result.url}")
-            state.website = _choose_website(state.search_results)
-            if state.profile and state.website:
-                state.profile.website = state.website
-            if state.website is None:
-                state.errors.append("No website was provided and search did not find a usable candidate.")
-                report(progress, "discover_website", "No usable website candidate was selected.")
-            else:
-                report(progress, "discover_website", f"Selected website candidate: {state.website}")
-        except Exception as exc:  # noqa: BLE001 - keep stateful error context for CLI output
-            state.errors.append(f"Website discovery failed: {exc}")
-            report(progress, "discover_website", f"Website discovery failed: {exc}")
         return state
 
     async def call_registries(state: AgentState) -> AgentState:
@@ -376,7 +348,6 @@ def build_graph(
 
     graph = StateGraph(AgentState)
     graph.add_node("initialize", initialize)
-    graph.add_node("discover_website", discover_website)
     graph.add_node("call_registries", call_registries)
     graph.add_node("seed_crawl", seed_crawl)
     graph.add_node("crawl_page", crawl_page)
@@ -385,8 +356,7 @@ def build_graph(
     graph.add_node("validate_profile", validate_profile)
     graph.add_node("finalize_profile", finalize_profile)
     graph.set_entry_point("initialize")
-    graph.add_edge("initialize", "discover_website")
-    graph.add_edge("discover_website", "call_registries")
+    graph.add_edge("initialize", "call_registries")
     graph.add_edge("call_registries", "seed_crawl")
     graph.add_edge("seed_crawl", "crawl_page")
     graph.add_edge("crawl_page", "filter_links")
@@ -413,13 +383,6 @@ async def run_lookup(
     if state.profile is None:
         raise RuntimeError("Lookup did not produce an organization profile.")
     return state.profile
-
-
-def _choose_website(search_results: list[SearchResult]) -> str | None:
-    for result in search_results:
-        if result.url.startswith(("http://", "https://")):
-            return result.url
-    return None
 
 
 async def _extract_page_info(

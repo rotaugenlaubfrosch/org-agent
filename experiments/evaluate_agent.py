@@ -17,7 +17,7 @@ MISSING_GROUND_TRUTH = "(not in ground truth)"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare agent output against JSONL ground truth.")
-    parser.add_argument("ground_truth", help="JSONL file with name, optional website, and expected fields")
+    parser.add_argument("ground_truth", help="JSONL file with name, website, and expected fields")
     parser.add_argument("index", nargs="?", type=int, help="Optional zero-based row index to evaluate")
     parser.add_argument(
         "--config",
@@ -42,6 +42,8 @@ def main() -> None:
     for row in tqdm(rows, desc="Evaluating", unit="case"):
         name = row["name"]
         website = row.get("website")
+        if not website:
+            raise ValueError(f"Ground-truth row for {name!r} is missing required website.")
         expected = row.get("expected", {})
         expected = {"queried_name": name, **expected}
 

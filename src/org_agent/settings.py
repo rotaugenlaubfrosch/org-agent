@@ -97,10 +97,6 @@ def validate_settings(settings: Settings, selected_registries: list[str] | None 
     if provider == "ollama" and _blank(settings.ollama_base_url):
         missing.append("ORG_AGENT_OLLAMA_BASE_URL")
 
-    search_provider = (settings.search_provider or "").lower().strip()
-    if search_provider in {"tavily", "brave"} and _blank(settings.search_api_key):
-        missing.append("ORG_AGENT_SEARCH_API_KEY")
-
     selected = {(name or "").lower().strip() for name in (selected_registries or [])}
     if "zefix" in selected:
         if _blank(settings.zefix_username):
@@ -116,12 +112,6 @@ def validate_settings(settings: Settings, selected_registries: list[str] | None 
     if provider not in supported_llm_providers:
         raise ValueError(
             "Unsupported ORG_AGENT_LLM_PROVIDER. Supported providers: openai, anthropic, ollama."
-        )
-
-    supported_search_providers = {"", "none", "disabled", "tavily", "brave"}
-    if search_provider not in supported_search_providers:
-        raise ValueError(
-            "Unsupported ORG_AGENT_SEARCH_PROVIDER. Supported providers: tavily, brave, none."
         )
 
 
