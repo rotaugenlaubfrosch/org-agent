@@ -1,13 +1,13 @@
-# org-agent
+# org-agent 🤖
 
-`org-agent` enriches an organization profile from a company or organization name and, optionally, a known website.
+`org-agent` enriches an organization profile from a company or organization name and a known website.
 
 It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, and `uv`.
 
 ## What It Does
 
 - Looks up an organization by name.
-- Uses a provided website, or discovers one through an optional search provider.
+- Uses the provided website as the crawl starting point.
 - Crawls the website with Playwright. 
 - Follows useful links found on the website in breadth-first order, such as contact, imprint, legal, privacy, and about pages.
 - Optionally queries configured registry API endpoints.
@@ -39,10 +39,6 @@ ORG_AGENT_API_KEY=<provider API key>
 # Required for Ollama:
 ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
 
-# Optional: Search provider used to discover a website when --website is not provided. Use none to disable search.
-ORG_AGENT_SEARCH_PROVIDER=tavily|brave|none
-ORG_AGENT_SEARCH_API_KEY=<search API key for tavily/brave>
-
 # Optional: Swiss company register (Zefix) credentials for --registry zefix
 ORG_AGENT_ZEFIX_USERNAME=<zefix username>
 ORG_AGENT_ZEFIX_PASSWORD=<zefix password>
@@ -68,7 +64,7 @@ Run `uv run org-agent` to show the help dashboard.
 
 Common lookup options:
 
-- `--website <url>`: use a known official website
+- `--website <url>`: required official website. Bare domains like `example.com` are accepted and normalized to `https://example.com`.
 - `--registry <id>`: enable optional registry provider (currently `zefix`)
 - `--json`: print raw JSON output
 - `--quiet`: suppress progress output
@@ -77,6 +73,12 @@ Run with a known website:
 
 ```bash
 uv run org-agent lookup "Example Ltd" --website https://example.com/
+```
+
+Bare domains are accepted:
+
+```bash
+uv run org-agent lookup "Example Ltd" --website example.com
 ```
 
 Print JSON:
@@ -96,38 +98,20 @@ The `lookup` command supports `--quiet` to suppress the live trace and show only
 Use a registry config:
 
 ```bash
-uv run org-agent lookup "Example Ltd" --config org-agent.yaml
+uv run org-agent lookup "Example Ltd" --website example.com --config org-agent.yaml
 ```
 
 Use Zefix from CLI flags:
 
 ```bash
-uv run org-agent lookup "Example Ltd" --registry zefix
+uv run org-agent lookup "Example Ltd" --website example.com --registry zefix
 ```
 
-Name-only lookup requires either a configured search provider or an enabled registry config. If neither is configured, provide `--website`.
-
-
-## Search
-
-Search is optional. Supported providers are:
-
-- `none`
-- `tavily`
-- `brave`
-
-Example:
-
-```env
-ORG_AGENT_SEARCH_PROVIDER=tavily
-ORG_AGENT_SEARCH_API_KEY=your-search-key
-```
-
-If `ORG_AGENT_SEARCH_PROVIDER=none`, the agent will not try to discover a website from the name.
+`--website` is required even when registry lookup is enabled.
 
 ## Website Crawling
  
-The crawler starts only from the provided or discovered website URL. It does not guess paths like `/contact` or `/impressum`.
+The crawler starts only from the provided website URL. It does not search for a website and does not guess paths like `/contact` or `/impressum`.
 
 The crawler:
 
