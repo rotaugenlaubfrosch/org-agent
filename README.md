@@ -16,7 +16,7 @@ It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, an
 
 ## LangGraph Graph Structure
 
-![LangGraph workflow](docs/graph.png)
+![LangGraph workflow](docs/schema.jpg)
 
 ## Setup
 
