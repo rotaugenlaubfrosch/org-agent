@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Work in Progress:** This section is currently under development.
+> **Work in Progress:** This repository is currently under development.
 
 
 # org-agent 🤖
