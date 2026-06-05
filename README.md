@@ -67,47 +67,13 @@ Run `uv run org-agent` to show the help dashboard.
 
 Common lookup options:
 
-- `--website <url>`: required official website. Bare domains like `example.com` are accepted and normalized to `https://example.com`.
-- `--registry <id>`: enable optional registry provider (currently `zefix`)
-- `--json`: print raw JSON output
-- `--quiet`: suppress progress output
-
-Run with a known website:
-
-```bash
-uv run org-agent lookup "Example Ltd" --website https://example.com/
-```
-
-Bare domains are accepted:
-
-```bash
-uv run org-agent lookup "Example Ltd" --website example.com
-```
-
-Print JSON:
-
-```bash
-uv run org-agent lookup "Example Ltd" --website https://example.com --json
-```
-
-Suppress progress output:
-
-```bash
-uv run org-agent lookup "Example Ltd" --website https://example.com --quiet
-```
-
-The `lookup` command supports `--quiet` to suppress the live trace and show only the result.
-
-Use a registry config:
-
-```bash
-uv run org-agent lookup "Example Ltd" --website example.com --config org-agent.yaml
-```
-
-Use Zefix from CLI flags:
-
-```bash
-uv run org-agent lookup "Example Ltd" --website example.com --registry zefix
+```text
+Option            Effect
+--website, -w     Required official website. Bare domains like example.com are accepted.
+--registry        Enable optional registry provider, e.g. zefix. Can be repeated.
+--config, -c      Load registry endpoint configuration from YAML.
+--json            Print the raw OrganizationProfile JSON.
+--quiet, -q       Suppress live progress output and print only the result.
 ```
 
 `--website` is required even when registry lookup is enabled.
