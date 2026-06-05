@@ -20,6 +20,7 @@ DEFAULT_DESCRIPTION_SYSTEM_PROMPT = (
 )
 
 DEFAULT_INDUSTRIES_CSV = str(Path(__file__).resolve().parent / "data" / "industries.csv")
+DEFAULT_CRAWL_LOG_DIR = str(Path(__file__).resolve().parents[2] / "logs")
 
 
 class Settings(BaseSettings):
@@ -40,7 +41,7 @@ class Settings(BaseSettings):
     crawl_max_pages: int = Field(default=6, alias="ORG_AGENT_CRAWL_MAX_PAGES")
     crawl_max_depth: int = Field(default=2, alias="ORG_AGENT_CRAWL_MAX_DEPTH")
     crawl_log_enabled: bool = Field(default=True, alias="ORG_AGENT_CRAWL_LOG_ENABLED")
-    crawl_log_dir: str | None = Field(default=None, alias="ORG_AGENT_CRAWL_LOG_DIR")
+    crawl_log_dir: str | None = Field(default=DEFAULT_CRAWL_LOG_DIR, alias="ORG_AGENT_CRAWL_LOG_DIR")
     playwright_headless: bool = Field(default=True, alias="ORG_AGENT_PLAYWRIGHT_HEADLESS")
     playwright_slow_mo: int = Field(default=0, alias="ORG_AGENT_PLAYWRIGHT_SLOW_MO")
     description_system_prompt: str = Field(
@@ -83,6 +84,13 @@ class Settings(BaseSettings):
             "industry_shortlist_size": 25,
         }
         return defaults[info.field_name]
+
+    @field_validator("crawl_log_dir", mode="before")
+    @classmethod
+    def blank_crawl_log_dir_to_default(cls, value: object) -> object:
+        if value == "":
+            return DEFAULT_CRAWL_LOG_DIR
+        return value
 
 
 def validate_settings(settings: Settings, selected_registries: list[str] | None = None) -> None:

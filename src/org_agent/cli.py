@@ -27,7 +27,7 @@ ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
 ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
 ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
 ORG_AGENT_CRAWL_LOG_ENABLED=<true|false, default true>
-ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, optional>
+ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, default project logs/>
 ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
 ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
@@ -100,7 +100,7 @@ def lookup(
     ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
     ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
     ORG_AGENT_CRAWL_LOG_ENABLED=<true|false, default true>
-    ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, optional>
+    ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, default project logs/>
     ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
     ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
