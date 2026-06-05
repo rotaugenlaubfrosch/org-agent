@@ -1,8 +1,11 @@
 from org_agent.models import (
     PROFILE_DISPLAY_FIELDS,
     REGISTRY_ONLY_PROFILE_FIELDS,
+    REGISTRY_PROFILE_DISPLAY_FIELDS,
     EvidenceEntry,
+    LookupResult,
     OrganizationProfile,
+    WEBSITE_PROFILE_DISPLAY_FIELDS,
     profile_display_field_groups,
 )
 
@@ -61,10 +64,28 @@ def test_profile_display_fields_match_profile_scalar_fields() -> None:
     assert set(PROFILE_DISPLAY_FIELDS).issubset(OrganizationProfile.model_fields)
 
 
-def test_profile_display_field_groups_separate_normal_and_registry_fields() -> None:
-    normal_fields, registry_fields = profile_display_field_groups()
+def test_lookup_result_separates_website_and_registry_profiles() -> None:
+    result = LookupResult(
+        website_profile=OrganizationProfile(
+            queried_name="Example Ltd",
+            country="Website Country",
+        ),
+        registry_profile=OrganizationProfile(
+            queried_name="Example Ltd",
+            country="Registry Country",
+        ),
+    )
 
-    assert normal_fields == (
+    assert result.website_profile.country == "Website Country"
+    assert result.registry_profile is not None
+    assert result.registry_profile.country == "Registry Country"
+
+
+def test_profile_display_field_groups_separate_website_and_registry_fields() -> None:
+    website_fields, registry_fields = profile_display_field_groups()
+
+    assert website_fields == WEBSITE_PROFILE_DISPLAY_FIELDS
+    assert website_fields == (
         "queried_name",
         "website",
         "legal_form",
@@ -75,14 +96,20 @@ def test_profile_display_field_groups_separate_normal_and_registry_fields() -> N
         "email",
         "country",
     )
-    assert registry_fields == REGISTRY_ONLY_PROFILE_FIELDS
+    assert registry_fields == REGISTRY_PROFILE_DISPLAY_FIELDS
     assert registry_fields == (
+        "official_company_name",
+        "registration_id",
+        "legal_form",
+        "purpose",
+        "legal_address",
+        "country",
+        "region",
+    )
+    assert REGISTRY_ONLY_PROFILE_FIELDS == (
         "official_company_name",
         "registration_id",
         "purpose",
         "legal_address",
         "region",
     )
-    assert set(normal_fields).isdisjoint(registry_fields)
-    assert normal_fields + registry_fields != PROFILE_DISPLAY_FIELDS
-    assert set(normal_fields + registry_fields) == set(PROFILE_DISPLAY_FIELDS)

@@ -18,12 +18,12 @@ from pydantic import BaseModel, ValidationError
 from org_agent.llm import build_chat_model
 from org_agent.models import (
     AgentState,
-    AppConfig,
     CrawlDecision,
     CrawlNode,
     CrawlTarget,
     EvidenceEntry,
     IndustrySelection,
+    LookupResult,
     LookupInput,
     OrganizationProfile,
     OrganizationProfilePatch,
@@ -33,7 +33,7 @@ from org_agent.models import (
     WebsitePage,
 )
 from org_agent.progress import ProgressCallback, report
-from org_agent.registry import query_registries
+from org_agent.registry import query_country_registry
 from org_agent.settings import Settings
 from org_agent.website import (
     INFORMATION_LINK_SIGNALS,
@@ -78,7 +78,7 @@ NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE = (
 
 def build_graph(
     settings: Settings,
-    app_config: AppConfig,
+    country: str | None = None,
     progress: ProgressCallback | None = None,
 ):
     llm = build_chat_model(settings)
@@ -95,27 +95,24 @@ def build_graph(
         return state
 
     async def call_registries(state: AgentState) -> AgentState:
-        enabled_count = sum(1 for registry in app_config.registries if registry.enabled)
-        if enabled_count == 0:
+        if not country:
             report(
                 progress,
                 "call_registries",
-                "Skipped registry lookup because no registries are enabled.",
+                "Skipped registry lookup because no country registry was selected.",
             )
             return state
-        report(progress, "call_registries", f"Querying {enabled_count} configured registry endpoint(s).")
-        state.registry_results = await query_registries(
+        state.registry_results = await query_country_registry(
+            country,
             state.input.name,
-            app_config,
             settings.request_timeout,
+            context_text=_registry_context_text(state),
             progress=progress,
             scope="call_registries",
         )
         if state.profile is not None:
             for result in state.registry_results:
-                filled_fields = _merge_profile_patch(state.profile, result.profile_patch)
-                _report_filled_fields(progress, "call_registries", filled_fields)
-                _extend_evidence_dedup(state.profile.evidence, result.evidence)
+                _report_registry_result_fields(progress, "call_registries", result.profile_patch)
         report(progress, "call_registries", f"Collected {len(state.registry_results)} registry result(s).")
         return state
 
@@ -209,7 +206,6 @@ def build_graph(
                 state.profile.website,
                 requested_fields,
                 state.current_page,
-                state.registry_results,
                 progress,
                 "analyze_page",
             )
@@ -295,6 +291,7 @@ def build_graph(
         node.reason = extraction.reasoning
         _report_page_analysis(progress, "analyze_page", analysis)
 
+        queued_selected_link = False
         if state.current_crawl_depth < settings.crawl_max_depth:
             for link in state.candidate_links:
                 if link.url not in selected_urls:
@@ -319,8 +316,13 @@ def build_graph(
                 )
                 state.queued_urls.add(link.url)
                 state.next_crawl_node_id += 1
+                queued_selected_link = True
 
-        state.should_continue_crawl = _should_continue_crawl(state, settings)
+        state.should_continue_crawl = _should_continue_crawl(
+            state,
+            settings,
+            queued_selected_link=queued_selected_link,
+        )
         return state
 
     async def validate_profile(state: AgentState) -> AgentState:
@@ -336,7 +338,6 @@ def build_graph(
         state.profile.queried_name = state.input.name
         if state.website and not state.profile.website:
             state.profile.website = state.website
-        _fill_registry_only_field_messages(state.profile, app_config)
         _write_crawl_text_logs(state, settings, progress, "finalize_profile")
         for error in state.errors:
             state.profile.evidence.append(
@@ -356,8 +357,7 @@ def build_graph(
     graph.add_node("validate_profile", validate_profile)
     graph.add_node("finalize_profile", finalize_profile)
     graph.set_entry_point("initialize")
-    graph.add_edge("initialize", "call_registries")
-    graph.add_edge("call_registries", "seed_crawl")
+    graph.add_edge("initialize", "seed_crawl")
     graph.add_edge("seed_crawl", "crawl_page")
     graph.add_edge("crawl_page", "filter_links")
     graph.add_edge("filter_links", "analyze_page")
@@ -366,7 +366,8 @@ def build_graph(
         lambda state: "crawl_page" if state.should_continue_crawl else "validate_profile",
         {"crawl_page": "crawl_page", "validate_profile": "validate_profile"},
     )
-    graph.add_edge("validate_profile", "finalize_profile")
+    graph.add_edge("validate_profile", "call_registries")
+    graph.add_edge("call_registries", "finalize_profile")
     graph.add_edge("finalize_profile", END)
     return graph.compile()
 
@@ -374,15 +375,21 @@ def build_graph(
 async def run_lookup(
     lookup_input: LookupInput,
     settings: Settings,
-    app_config: AppConfig,
+    country: str | None = None,
     progress: ProgressCallback | None = None,
-) -> OrganizationProfile:
-    graph = build_graph(settings, app_config, progress=progress)
+) -> LookupResult:
+    graph = build_graph(settings, country=country, progress=progress)
     final_state = await graph.ainvoke(AgentState(input=lookup_input))
     state = AgentState.model_validate(final_state)
     if state.profile is None:
         raise RuntimeError("Lookup did not produce an organization profile.")
-    return state.profile
+    registry_profile = _build_registry_profile(
+        state.input.name,
+        state.registry_results,
+        progress,
+        "finalize_profile",
+    )
+    return LookupResult(website_profile=state.profile, registry_profile=registry_profile)
 
 
 async def _extract_page_info(
@@ -392,7 +399,6 @@ async def _extract_page_info(
     website: str | None,
     requested_fields: list[str],
     current_page: WebsitePage,
-    registry_results: list,
     progress: ProgressCallback | None,
     scope: str,
 ) -> PageExtraction:
@@ -408,8 +414,7 @@ async def _extract_page_info(
         f"{parser.get_format_instructions()}\n\n"
         f"Organization name: {organization_name}\n\n"
         f"Known website: {website or 'unknown'}\n\n"
-        f"Current page:\n{current_page.model_dump_json(indent=2)}\n\n"
-        f"Registry results:\n{json.dumps([r.model_dump() for r in registry_results], ensure_ascii=False, indent=2)}"
+        f"Current page:\n{current_page.model_dump_json(indent=2)}"
     )
     messages = [
         SystemMessage(
@@ -790,6 +795,73 @@ def _report_filled_fields(
         report(progress, step, f"Filled {field}: {_truncate_progress_value(value)}")
 
 
+def _report_registry_result_fields(
+    progress: ProgressCallback | None,
+    step: str,
+    patch: OrganizationProfilePatch,
+) -> None:
+    for field, value in patch.model_dump().items():
+        if value not in {None, ""}:
+            report(progress, step, f"Registry returned {field}: {_truncate_progress_value(str(value))}")
+
+
+def _build_registry_profile(
+    queried_name: str,
+    registry_results: list,
+    progress: ProgressCallback | None = None,
+    step: str = "finalize_profile",
+) -> OrganizationProfile | None:
+    if not registry_results:
+        return None
+
+    profile = OrganizationProfile(queried_name=queried_name)
+    for result in registry_results:
+        filled_fields = _merge_profile_patch(profile, result.profile_patch)
+        _report_filled_fields(progress, step, filled_fields)
+        _extend_evidence_dedup(profile.evidence, _matching_profile_evidence(profile, result.evidence))
+
+    _normalize_profile_country(profile)
+    if not any(getattr(profile, field) not in {None, ""} for field in OrganizationProfilePatch.model_fields):
+        return None
+    return profile
+
+
+def _registry_context_text(state: AgentState) -> str:
+    parts: list[str] = []
+    if state.profile is not None:
+        for value in (state.profile.website, state.profile.description, state.profile.industry):
+            if value:
+                parts.append(value)
+    parts.extend(page.text for page in state.website_pages)
+    return "\n".join(parts)
+
+
+def _merge_profile_patch_missing_only(
+    profile: OrganizationProfile,
+    patch: OrganizationProfilePatch,
+) -> list[tuple[str, str]]:
+    filled_fields: list[tuple[str, str]] = []
+    for field, value in patch.model_dump().items():
+        if value in {None, ""} or getattr(profile, field) not in {None, ""}:
+            continue
+        setattr(profile, field, value)
+        filled_fields.append((field, str(value)))
+    return filled_fields
+
+
+def _matching_profile_evidence(
+    profile: OrganizationProfile,
+    evidence: list[EvidenceEntry],
+) -> list[EvidenceEntry]:
+    matching: list[EvidenceEntry] = []
+    for entry in evidence:
+        if not hasattr(profile, entry.field):
+            continue
+        if entry.value is None or getattr(profile, entry.field) == entry.value:
+            matching.append(entry)
+    return matching
+
+
 def _truncate_progress_value(value: str, max_length: int = 60) -> str:
     if len(value) <= max_length:
         return value
@@ -829,9 +901,11 @@ def _keep_requested_extraction_fields(extraction: PageExtraction, requested_fiel
     extraction.missing_fields = [field for field in extraction.missing_fields if field in requested]
 
 
-def _fill_registry_only_field_messages(profile: OrganizationProfile, app_config: AppConfig) -> None:
-    has_enabled_registry = any(registry.enabled for registry in app_config.registries)
-    if has_enabled_registry:
+def _fill_registry_only_field_messages(
+    profile: OrganizationProfile,
+    has_registry_results: bool = False,
+) -> None:
+    if has_registry_results:
         return
 
     registry_only_fields = {
@@ -897,11 +971,17 @@ def _slugify(value: str) -> str:
     return slug[:80] or "page"
 
 
-def _should_continue_crawl(state: AgentState, settings: Settings) -> bool:
+def _should_continue_crawl(
+    state: AgentState,
+    settings: Settings,
+    queued_selected_link: bool = False,
+) -> bool:
     if len(state.website_pages) >= settings.crawl_max_pages:
         return False
     if not state.pending_urls:
         return False
+    if queued_selected_link:
+        return True
     if state.page_analysis and state.page_analysis.is_complete and _has_minimum_profile(state.profile):
         return False
     return True

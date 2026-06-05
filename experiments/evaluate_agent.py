@@ -20,15 +20,8 @@ def main() -> None:
     parser.add_argument("ground_truth", help="JSONL file with name, website, and expected fields")
     parser.add_argument("index", nargs="?", type=int, help="Optional zero-based row index to evaluate")
     parser.add_argument(
-        "--config",
-        help="Optional registry YAML config with endpoints to query before extraction.",
-    )
-    parser.add_argument(
-        "--registry",
-        action="append",
-        default=[],
-        dest="registries",
-        help="Enable optional registry provider(s), e.g. zefix. Repeatable.",
+        "--country",
+        help="Enable optional country registry integration by country code, e.g. ch.",
     )
     args = parser.parse_args()
 
@@ -49,32 +42,34 @@ def main() -> None:
 
         console.rule(name)
         try:
-            profile = lookup_organization(
+            result = lookup_organization(
                 name=name,
                 website=website,
-                config=args.config,
-                registries=args.registries,
+                country=args.country,
                 progress=None,
             )
         except Exception as exc:  # noqa: BLE001 - keep batch evaluation running
             console.print(f"[red]Agent failed:[/red] {exc}")
             continue
 
-        prediction = profile.model_dump()
+        website_prediction = result.website_profile.model_dump()
+        registry_prediction = (
+            result.registry_profile.model_dump() if result.registry_profile is not None else {}
+        )
         table = Table(show_header=True)
         table.add_column("Field")
         table.add_column("Ground Truth")
         table.add_column("Agent")
 
-        normal_fields, registry_fields = profile_display_field_groups()
-        for field in normal_fields:
+        website_fields, registry_fields = profile_display_field_groups()
+        for field in website_fields:
             expected_value = expected.get(field, MISSING_GROUND_TRUTH)
-            actual_value = prediction.get(field)
+            actual_value = website_prediction.get(field)
             table.add_row(field, _format_value(expected_value), _format_value(actual_value))
         table.add_section()
         for field in registry_fields:
             expected_value = expected.get(field, MISSING_GROUND_TRUTH)
-            actual_value = prediction.get(field)
+            actual_value = registry_prediction.get(field)
             table.add_row(field, _format_value(expected_value), _format_value(actual_value))
 
         console.print(table)

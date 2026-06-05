@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from org_agent.api import lookup_organization
-from org_agent.models import OrganizationProfile, profile_display_field_groups
+from org_agent.models import LookupResult, OrganizationProfile, profile_display_field_groups
 
 HELP_TEXT = """Enrich organization profiles from a name and required website.
 
@@ -31,9 +31,13 @@ ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, optional>
 ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
 ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
+Optional country registry credentials:
+ORG_AGENT_REGISTRY_CH_USERNAME=<Swiss registry username>
+ORG_AGENT_REGISTRY_CH_PASSWORD=<Swiss registry password>
+
 Common lookup options:
   --website <url>  Required official website. Bare domains like example.com are accepted.
-  --registry <id>  Enable optional registry provider (e.g. zefix)
+  --country <code> Enable optional country registry integration (e.g. ch)
   --json           Print raw JSON output
   --quiet          Suppress progress output
 
@@ -64,16 +68,10 @@ def lookup(
         "-w",
         help="Required official website. Bare domains like example.com are accepted.",
     ),
-    config: str | None = typer.Option(
+    country: str | None = typer.Option(
         None,
-        "--config",
-        "-c",
-        help="Optional registry YAML config with endpoints to query before extraction.",
-    ),
-    registries: list[str] = typer.Option(
-        [],
-        "--registry",
-        help="Enable optional registry provider(s), e.g. zefix. Repeatable.",
+        "--country",
+        help="Enable optional country registry integration by country code, e.g. ch.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON output."),
     quiet: bool = typer.Option(
@@ -104,25 +102,27 @@ def lookup(
     ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
     ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 
+    Optional country registry credentials:
+    ORG_AGENT_REGISTRY_CH_USERNAME=<Swiss registry username>
+    ORG_AGENT_REGISTRY_CH_PASSWORD=<Swiss registry password>
+
     Examples:
     org-agent lookup "Example Ltd" --website https://example.com
     org-agent lookup "Example Ltd" --website example.com --quiet
     """
     try:
         if quiet:
-            profile = lookup_organization(
+            result = lookup_organization(
                 name=name,
                 website=website,
-                config=config,
-                registries=registries,
+                country=country,
             )
         else:
             err_console.rule("[bold cyan]org-agent trace")
-            profile = lookup_organization(
+            result = lookup_organization(
                 name=name,
                 website=website,
-                config=config,
-                registries=registries,
+                country=country,
                 progress=_make_progress_logger(),
             )
             err_console.rule("[bold green]done")
@@ -131,28 +131,36 @@ def lookup(
         raise typer.Exit(code=1) from exc
 
     if json_output:
-        console.print(json.dumps(profile.model_dump(), ensure_ascii=False, indent=2))
+        console.print(json.dumps(result.model_dump(), ensure_ascii=False, indent=2))
         return
 
-    _print_profile(profile)
+    _print_lookup_result(result)
 
 
-def _print_profile(profile: OrganizationProfile) -> None:
-    table = Table(title="Organization Profile", show_header=True, header_style="bold")
+def _print_lookup_result(result: LookupResult) -> None:
+    website_fields, registry_fields = profile_display_field_groups()
+    _print_profile_table("Website Profile", result.website_profile, website_fields)
+    if result.registry_profile is not None:
+        _print_profile_table("Registry Profile", result.registry_profile, registry_fields)
+
+    _print_evidence_panel("Website Evidence", result.website_profile)
+    if result.registry_profile is not None:
+        _print_evidence_panel("Registry Evidence", result.registry_profile)
+
+
+def _print_profile_table(title: str, profile: OrganizationProfile, fields: tuple[str, ...]) -> None:
+    table = Table(title=title, show_header=True, header_style="bold")
     table.add_column("Field", style="cyan", no_wrap=True)
     table.add_column("Value")
 
-    normal_fields, registry_fields = profile_display_field_groups()
-    for field in normal_fields:
-        value = getattr(profile, field)
-        table.add_row(field, "" if value is None else str(value))
-    table.add_section()
-    for field in registry_fields:
+    for field in fields:
         value = getattr(profile, field)
         table.add_row(field, "" if value is None else str(value))
 
     console.print(table)
 
+
+def _print_evidence_panel(title: str, profile: OrganizationProfile) -> None:
     lines = []
     for entry in profile.evidence:
         parts = []
@@ -160,7 +168,7 @@ def _print_profile(profile: OrganizationProfile) -> None:
             parts.append(f"Source: {entry.source}.")
         parts.append(entry.reasoning)
         lines.append(f"[bold]{entry.field}[/bold]: {' '.join(parts)}")
-    console.print(Panel("\n".join(lines) or "No evidence entries returned.", title="Evidence"))
+    console.print(Panel("\n".join(lines) or "No evidence entries returned.", title=title))
 
 
 def _make_progress_logger():

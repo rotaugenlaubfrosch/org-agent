@@ -1,3 +1,5 @@
+import asyncio
+
 from langchain_core.output_parsers import PydanticOutputParser
 
 from org_agent.graph import (
@@ -7,32 +9,55 @@ from org_agent.graph import (
     NO_REGISTRY_REGION_MESSAGE,
     NO_REGISTRY_REGISTRATION_ID_MESSAGE,
     _fill_registry_only_field_messages,
+    _extract_page_info,
     _keep_requested_extraction_fields,
     _load_industries,
     _missing_crawl_fields,
+    _build_registry_profile,
     _merge_profile_patch,
+    _merge_profile_patch_missing_only,
     _missing_profile_fields,
     _normalize_country,
     _normalize_profile_country,
     _parse_crawl_decision_result,
     _parse_industry_selection_result,
     _parse_structured_result,
+    _should_continue_crawl,
     _truncate_progress_value,
     _validate_profile_email,
     _validate_selected_industries,
 )
 from org_agent.models import (
-    AppConfig,
+    AgentState,
     CrawlDecision,
+    CrawlTarget,
     EvidenceEntry,
     IndustrySelection,
+    LookupInput,
     OrganizationProfile,
     OrganizationProfilePatch,
+    PageAnalysis,
     PageExtraction,
-    RegistryEndpointConfig,
+    RegistryResult,
     WebsiteOrganizationProfilePatch,
     WebsitePage,
 )
+
+
+class _CrawlSettings:
+    crawl_max_pages = 6
+
+
+class _CapturingStructuredLLM:
+    def __init__(self) -> None:
+        self.messages = None
+
+    def with_structured_output(self, _model_type):
+        return self
+
+    async def ainvoke(self, messages):
+        self.messages = messages
+        return PageExtraction(reasoning="No values on page.")
 
 
 def test_load_industries_reads_comma_separated_file(tmp_path) -> None:
@@ -115,6 +140,29 @@ def test_parse_page_extraction_accepts_schema_like_properties_wrapper() -> None:
     assert extraction.reasoning == "Extracted address from page content."
 
 
+def test_extract_page_info_prompt_excludes_registry_results() -> None:
+    llm = _CapturingStructuredLLM()
+    parser = PydanticOutputParser(pydantic_object=PageExtraction)
+
+    asyncio.run(
+        _extract_page_info(
+            llm,
+            parser,
+            "Example Ltd",
+            "https://example.com",
+            ["address", "phone"],
+            WebsitePage(url="https://example.com", text="Contact page text."),
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[-1].content
+
+    assert "Current page:" in prompt
+    assert "Registry results:" not in prompt
+
+
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
@@ -189,7 +237,7 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
 def test_fill_registry_only_field_messages_sets_no_registry_messages() -> None:
     profile = OrganizationProfile(queried_name="Example Ltd")
 
-    _fill_registry_only_field_messages(profile, AppConfig())
+    _fill_registry_only_field_messages(profile)
 
     assert profile.legal_address == NO_REGISTRY_LEGAL_ADDRESS_MESSAGE
     assert profile.official_company_name == NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE
@@ -206,20 +254,10 @@ def test_fill_registry_only_field_messages_sets_no_registry_messages() -> None:
     assert all(entry.source == "agent" for entry in profile.evidence)
 
 
-def test_fill_registry_only_field_messages_skips_when_registry_enabled() -> None:
+def test_fill_registry_only_field_messages_skips_when_registry_results_exist() -> None:
     profile = OrganizationProfile(queried_name="Example Ltd")
-    config = AppConfig(
-        registries=[
-            RegistryEndpointConfig(
-                name="zefix",
-                provider="zefix",
-                base_url="https://www.zefix.admin.ch/ZefixPublicREST",
-                enabled=True,
-            )
-        ]
-    )
 
-    _fill_registry_only_field_messages(profile, config)
+    _fill_registry_only_field_messages(profile, has_registry_results=True)
 
     assert profile.legal_address is None
     assert profile.official_company_name is None
@@ -244,6 +282,95 @@ def test_merge_profile_patch_returns_only_newly_filled_fields() -> None:
     assert profile.email == "new@example.com"
     assert profile.phone == "+1 555 0100"
     assert filled_fields == [("phone", "+1 555 0100")]
+
+
+def test_merge_profile_patch_missing_only_does_not_overwrite_website_fields() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        website="https://example.com",
+        address="Website Street 1",
+        phone="+1 555 0100",
+        email="info@example.com",
+        country="Website Country",
+    )
+    patch = OrganizationProfilePatch(
+        official_company_name="Example Ltd Official",
+        registration_id="CHE-123",
+        legal_form="AG",
+        address="Registry Street 2",
+        phone="+1 555 9999",
+        email="registry@example.com",
+        country="Switzerland",
+        legal_address="Registry Street 2, 8000 Zurich",
+    )
+
+    filled_fields = _merge_profile_patch_missing_only(profile, patch)
+
+    assert profile.official_company_name == "Example Ltd Official"
+    assert profile.registration_id == "CHE-123"
+    assert profile.legal_form == "AG"
+    assert profile.legal_address == "Registry Street 2, 8000 Zurich"
+    assert profile.address == "Website Street 1"
+    assert profile.phone == "+1 555 0100"
+    assert profile.email == "info@example.com"
+    assert profile.country == "Website Country"
+    assert filled_fields == [
+        ("official_company_name", "Example Ltd Official"),
+        ("registration_id", "CHE-123"),
+        ("legal_form", "AG"),
+        ("legal_address", "Registry Street 2, 8000 Zurich"),
+    ]
+
+
+def test_build_registry_profile_keeps_registry_fields_separate() -> None:
+    registry_result = RegistryResult(
+        registry="ch",
+        url="https://registry.example/detail",
+        status_code=200,
+        content="{}",
+        profile_patch=OrganizationProfilePatch(
+            official_company_name="Example Ltd Official",
+            phone="+1 555 9999",
+            country="Switzerland",
+        ),
+        evidence=[
+            EvidenceEntry(
+                field="official_company_name",
+                value="Example Ltd Official",
+                source="https://registry.example/detail",
+                reasoning="Extracted from registry.",
+            ),
+            EvidenceEntry(
+                field="phone",
+                value="+1 555 9999",
+                source="https://registry.example/detail",
+                reasoning="Extracted from registry.",
+            ),
+        ],
+    )
+
+    profile = _build_registry_profile("Example Ltd", [registry_result])
+
+    assert profile is not None
+    assert profile.queried_name == "Example Ltd"
+    assert profile.official_company_name == "Example Ltd Official"
+    assert profile.country == "Switzerland"
+    assert profile.phone == "+1 555 9999"
+    assert [entry.field for entry in profile.evidence] == [
+        "official_company_name",
+        "phone",
+    ]
+
+
+def test_build_registry_profile_returns_none_without_registry_values() -> None:
+    registry_result = RegistryResult(
+        registry="ch",
+        url="https://registry.example/detail",
+        status_code=0,
+        content="Registry query failed.",
+    )
+
+    assert _build_registry_profile("Example Ltd", [registry_result]) is None
 
 
 def test_normalize_country_resolves_iso_codes_and_names() -> None:
@@ -322,6 +449,29 @@ def test_validate_profile_email_ignores_empty_website_pages() -> None:
     _validate_profile_email(profile, [])
 
     assert profile.email == "info@example.com"
+
+
+def test_should_continue_crawl_visits_newly_queued_selected_link() -> None:
+    state = AgentState(
+        input=LookupInput(name="Example Ltd", website="https://example.com"),
+        profile=OrganizationProfile(
+            queried_name="Example Ltd",
+            website="https://example.com",
+            description="Example Ltd does things.",
+            industry="Food",
+            phone="+1 555 0100",
+            evidence=[EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found.")],
+        ),
+        website_pages=[WebsitePage(url="https://example.com", text="Page text.")],
+        pending_urls=[CrawlTarget(url="https://example.com/contact", depth=1, node_id=1)],
+        page_analysis=PageAnalysis(
+            reasoning="The profile is complete, but a selected link was queued.",
+            is_complete=True,
+        ),
+    )
+
+    assert _should_continue_crawl(state, _CrawlSettings()) is False
+    assert _should_continue_crawl(state, _CrawlSettings(), queued_selected_link=True) is True
 
 
 def test_truncate_progress_value_appends_ellipsis_at_limit() -> None:

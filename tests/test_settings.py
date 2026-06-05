@@ -6,28 +6,8 @@ from org_agent.settings import (
     DEFAULT_DESCRIPTION_SYSTEM_PROMPT,
     DEFAULT_INDUSTRIES_CSV,
     Settings,
-    load_app_config,
     validate_settings,
 )
-
-
-def test_load_app_config(tmp_path: Path) -> None:
-    config_path = tmp_path / "org-agent.yaml"
-    config_path.write_text(
-        """
-registries:
-  - name: demo
-    base_url: https://example.com/search
-    query_param: q
-    enabled: true
-""".strip(),
-        encoding="utf-8",
-    )
-
-    config = load_app_config(config_path)
-
-    assert len(config.registries) == 1
-    assert config.registries[0].name == "demo"
 
 
 def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path) -> None:
@@ -135,23 +115,28 @@ def test_settings_requires_ollama_model_and_url(monkeypatch, tmp_path: Path) -> 
         validate_settings(settings)
 
 
-def test_validate_settings_requires_zefix_credentials_when_selected(monkeypatch, tmp_path: Path) -> None:
+def test_validate_settings_accepts_country_without_registry_credentials(
+    monkeypatch, tmp_path: Path
+) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ORG_AGENT_LLM_PROVIDER", "ollama")
     monkeypatch.setenv("ORG_AGENT_LLM_MODEL", "llama3.1")
     monkeypatch.setenv("ORG_AGENT_OLLAMA_BASE_URL", "http://localhost:11434")
-    monkeypatch.delenv("ORG_AGENT_ZEFIX_USERNAME", raising=False)
-    monkeypatch.delenv("ORG_AGENT_ZEFIX_PASSWORD", raising=False)
+    monkeypatch.delenv("ORG_AGENT_REGISTRY_CH_USERNAME", raising=False)
+    monkeypatch.delenv("ORG_AGENT_REGISTRY_CH_PASSWORD", raising=False)
 
     settings = Settings()
 
-    with pytest.raises(ValueError, match="ORG_AGENT_ZEFIX_USERNAME"):
-        validate_settings(settings, selected_registries=["zefix"])
+    validate_settings(settings, country="ch")
 
 
-def test_load_app_config_adds_selected_zefix_registry() -> None:
-    config = load_app_config(None, selected_registries=["zefix"])
+def test_validate_settings_rejects_unsupported_country(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORG_AGENT_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("ORG_AGENT_LLM_MODEL", "llama3.1")
+    monkeypatch.setenv("ORG_AGENT_OLLAMA_BASE_URL", "http://localhost:11434")
 
-    assert len(config.registries) == 1
-    assert config.registries[0].name == "zefix"
-    assert config.registries[0].provider == "zefix"
+    settings = Settings()
+
+    with pytest.raises(ValueError, match="Unsupported --country value: xx"):
+        validate_settings(settings, country="xx")

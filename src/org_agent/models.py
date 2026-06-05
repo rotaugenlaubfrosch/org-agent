@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, Literal
-
 from pydantic import BaseModel, Field, HttpUrl
 
 
@@ -30,11 +28,31 @@ REGISTRY_ONLY_PROFILE_FIELDS = (
     "region",
 )
 
+WEBSITE_PROFILE_DISPLAY_FIELDS = (
+    "queried_name",
+    "website",
+    "legal_form",
+    "industry",
+    "description",
+    "address",
+    "phone",
+    "email",
+    "country",
+)
+
+REGISTRY_PROFILE_DISPLAY_FIELDS = (
+    "official_company_name",
+    "registration_id",
+    "legal_form",
+    "purpose",
+    "legal_address",
+    "country",
+    "region",
+)
+
 
 def profile_display_field_groups() -> tuple[tuple[str, ...], tuple[str, ...]]:
-    registry_fields = set(REGISTRY_ONLY_PROFILE_FIELDS)
-    normal_fields = tuple(field for field in PROFILE_DISPLAY_FIELDS if field not in registry_fields)
-    return normal_fields, REGISTRY_ONLY_PROFILE_FIELDS
+    return WEBSITE_PROFILE_DISPLAY_FIELDS, REGISTRY_PROFILE_DISPLAY_FIELDS
 
 
 class EvidenceEntry(BaseModel):
@@ -63,6 +81,11 @@ class OrganizationProfile(BaseModel):
     country: str | None = None
     region: str | None = None
     evidence: list[EvidenceEntry] = Field(default_factory=list)
+
+
+class LookupResult(BaseModel):
+    website_profile: OrganizationProfile
+    registry_profile: OrganizationProfile | None = None
 
 
 class OrganizationProfilePatch(BaseModel):
@@ -98,23 +121,6 @@ class SearchResult(BaseModel):
     title: str
     url: str
     snippet: str | None = None
-
-
-class RegistryEndpointConfig(BaseModel):
-    name: str
-    provider: str | None = None
-    base_url: str
-    method: Literal["GET", "POST"] = "GET"
-    query_param: str = "q"
-    api_key_env: str | None = None
-    api_key_header: str | None = None
-    api_key_prefix: str = ""
-    enabled: bool = True
-    extra_params: dict[str, Any] = Field(default_factory=dict)
-
-
-class AppConfig(BaseModel):
-    registries: list[RegistryEndpointConfig] = Field(default_factory=list)
 
 
 class RegistryResult(BaseModel):
