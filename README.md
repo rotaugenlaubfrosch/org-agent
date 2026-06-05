@@ -6,7 +6,11 @@
 
 `org-agent` enriches an organization profile from a company or organization name and a known website.
 
-It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, and `uv`.
+It is a Python package and CLI tool built with LangGraph, Playwright, Typer, Rich, and uv.
+
+## LangGraph Graph Structure
+
+![LangGraph workflow](docs/schema.jpg)
 
 ## What It Does
 
@@ -14,13 +18,8 @@ It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, an
 - Uses the provided website as the crawl starting point.
 - Crawls the website with Playwright. 
 - Follows useful links found on the website in breadth-first order, such as contact, imprint, legal, privacy, and about pages.
-- Optionally queries configured registry API endpoints.
-- Sends gathered evidence to an LLM.
+- Optionally queries configured registry API endpoints if provided.
 - Returns a structured organization profile with evidence entries.
-
-## LangGraph Graph Structure
-
-![LangGraph workflow](docs/schema.jpg)
 
 ## Setup
 
