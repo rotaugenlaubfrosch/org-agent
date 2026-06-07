@@ -38,8 +38,8 @@ Common lookup options:
   --quiet          Suppress progress output
 
 Examples:
-  org-agent lookup "Example Ltd" --website https://example.com
-  org-agent lookup "Example Ltd" --website example.com --quiet
+  org-agent "Example Ltd" --website https://example.com
+  org-agent "Example Ltd" --website example.com --quiet
 """
 
 app = typer.Typer(help=HELP_TEXT, add_completion=False)
@@ -47,19 +47,15 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-@app.callback(invoke_without_command=True)
-def main(ctx: typer.Context) -> None:
-    """Enrich organization profiles from a name and required website."""
-    if ctx.invoked_subcommand is None:
-        typer.echo(ctx.get_help())
-        raise typer.Exit()
-
-
 @app.command()
-def lookup(
-    name: str = typer.Argument(..., help="Organization name, assumed to be the correct name."),
-    website: str = typer.Option(
-        ...,
+def main(
+    ctx: typer.Context,
+    name: str | None = typer.Argument(
+        None,
+        help="Organization name, assumed to be the correct name.",
+    ),
+    website: str | None = typer.Option(
+        None,
         "--website",
         "-w",
         help="Required official website. Bare domains like example.com are accepted.",
@@ -83,31 +79,15 @@ def lookup(
         help="Suppress the live trace of registry, website crawl, and extraction steps.",
     ),
 ) -> None:
-    """Lookup and enrich an organization profile.
+    """Enrich organization profiles from a name and required website."""
+    if name is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
-    Required environment configuration:
-    ORG_AGENT_LLM_PROVIDER=openai|anthropic|ollama
-    ORG_AGENT_LLM_MODEL=<model name>
+    if website is None:
+        err_console.print("[red]Lookup failed:[/red] --website is required.")
+        raise typer.Exit(code=1)
 
-    Required for OpenAI/Anthropic:
-    ORG_AGENT_API_KEY=<provider API key>
-
-    Required for Ollama:
-    ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
-
-    Optional runtime configuration:
-    ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
-    ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
-    ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
-    ORG_AGENT_CRAWL_LOG_ENABLED=<true|false, default true>
-    ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, default project logs/>
-    ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
-    ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
-
-    Examples:
-    org-agent lookup "Example Ltd" --website https://example.com
-    org-agent lookup "Example Ltd" --website example.com --quiet
-    """
     try:
         if quiet:
             profile = lookup_organization(
