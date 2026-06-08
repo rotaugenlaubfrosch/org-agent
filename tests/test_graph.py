@@ -14,6 +14,9 @@ from org_agent.graph import (
     _load_industries,
     _missing_crawl_fields,
     _build_registry_profile,
+    _address_fields_config_path,
+    _fragment_profile_address,
+    _load_address_fields_config,
     _merge_profile_patch,
     _merge_profile_patch_missing_only,
     _missing_profile_fields,
@@ -26,6 +29,7 @@ from org_agent.graph import (
     _truncate_progress_value,
     _validate_profile_email,
     _validate_selected_industries,
+    _validated_address_fields,
 )
 from org_agent.models import (
     AgentState,
@@ -60,6 +64,21 @@ class _CapturingStructuredLLM:
         return PageExtraction(reasoning="No values on page.")
 
 
+class _AddressFragmentationLLM:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.messages = None
+
+    async def ainvoke(self, messages):
+        self.messages = messages
+
+        class _Response:
+            def __init__(self, content: str) -> None:
+                self.content = content
+
+        return _Response(self.content)
+
+
 def test_load_industries_reads_comma_separated_file(tmp_path) -> None:
     path = tmp_path / "industries.csv"
     path.write_text("AgroTech,Metallurgy\nAgroTech,Microactuators", encoding="utf-8")
@@ -73,6 +92,185 @@ def test_validate_selected_industries_keeps_only_canonical_values() -> None:
         ["AgroTech", "Metallurgy"],
         2,
     ) == ["AgroTech", "Metallurgy"]
+
+
+def test_load_address_fields_config_requires_prompt_and_validation(tmp_path) -> None:
+    path = tmp_path / "address_fields.json"
+    path.write_text(
+        '{"city": {"prompt": "Extract the city.", "validation": true}}',
+        encoding="utf-8",
+    )
+
+    assert _load_address_fields_config(path) == {
+        "city": {"prompt": "Extract the city.", "validation": True}
+    }
+
+
+def test_load_address_fields_config_rejects_extra_keys(tmp_path) -> None:
+    path = tmp_path / "address_fields.json"
+    path.write_text(
+        '{"city": {"prompt": "Extract the city.", "validation": true, "example": "Zürich"}}',
+        encoding="utf-8",
+    )
+
+    try:
+        _load_address_fields_config(path)
+    except ValueError as exc:
+        assert "exactly prompt and validation" in str(exc)
+    else:
+        raise AssertionError("Expected malformed address fields config to be rejected.")
+
+
+def test_address_fields_config_path_resolves_explicit_country_and_profile_country() -> None:
+    assert _address_fields_config_path("ch", None) is not None
+    assert _address_fields_config_path(None, "Switzerland") is not None
+
+
+def test_validated_address_fields_prefixes_and_filters_values() -> None:
+    config = {
+        "street": {"prompt": "Extract street.", "validation": True},
+        "city": {"prompt": "Extract city.", "validation": True},
+        "note": {"prompt": "Extract note.", "validation": False},
+    }
+    extracted = {
+        "street": "Rämistrasse",
+        "address_city": "Invented City",
+        "address_note": "Generated note",
+        "unknown": "Ignored",
+    }
+
+    assert _validated_address_fields(
+        "ETH Zürich, Rämistrasse 101, CH-8092 Zürich",
+        extracted,
+        config,
+    ) == {
+        "address_street": "Rämistrasse",
+        "address_note": "Generated note",
+    }
+
+
+def test_fragment_profile_address_keeps_address_and_reports_llm_output() -> None:
+    profile = OrganizationProfile(
+        queried_name="ETH Zürich",
+        address="ETH Zürich, Rämistrasse 101, CH-8092 Zürich",
+    )
+    llm = _AddressFragmentationLLM(
+        '{"address_organization": "ETH Zürich", "address_street": "Rämistrasse", '
+        '"address_number": "101", "address_postal_code": "8092", "address_city": "Zürich"}'
+    )
+    reports = []
+
+    asyncio.run(
+        _fragment_profile_address(
+            llm,
+            profile,
+            "ch",
+            lambda step, message: reports.append((step, message)),
+            "validate_profile",
+        )
+    )
+
+    assert profile.address == "ETH Zürich, Rämistrasse 101, CH-8092 Zürich"
+    assert profile.address_fields == {
+        "address_organization": "ETH Zürich",
+        "address_street": "Rämistrasse",
+        "address_number": "101",
+        "address_postal_code": "8092",
+        "address_city": "Zürich",
+    }
+    assert llm.messages is not None
+    assert "address_city" in llm.messages[-1].content
+    assert reports[0] == (
+        "validate_profile",
+        "Address fields country source: explicit --country=ch -> ch.",
+    )
+    assert reports[1][0] == "validate_profile"
+    assert "Therefore, using address fields config:" in reports[1][1]
+    assert "Address fragmentation LLM output:" in reports[-1][1]
+
+
+def test_fragment_profile_address_reports_profile_country_fallback() -> None:
+    profile = OrganizationProfile(
+        queried_name="ETH Zürich",
+        address="ETH Zürich, Rämistrasse 101, CH-8092 Zürich",
+        country="Switzerland",
+    )
+    llm = _AddressFragmentationLLM('{"address_city": "Zürich"}')
+    reports = []
+
+    asyncio.run(
+        _fragment_profile_address(
+            llm,
+            profile,
+            None,
+            lambda step, message: reports.append((step, message)),
+            "validate_profile",
+        )
+    )
+
+    assert reports[0] == (
+        "validate_profile",
+        "Address fields country source: extracted profile.country=Switzerland -> ch.",
+    )
+    assert "Therefore, using address fields config:" in reports[1][1]
+    assert profile.address_fields == {"address_city": "Zürich"}
+
+
+def test_fragment_profile_address_reports_no_country_skip() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        address="Example Street 1",
+    )
+    llm = _AddressFragmentationLLM('{"address_city": "Zürich"}')
+    reports = []
+
+    asyncio.run(
+        _fragment_profile_address(
+            llm,
+            profile,
+            None,
+            lambda step, message: reports.append((step, message)),
+            "validate_profile",
+        )
+    )
+
+    assert reports == [
+        (
+            "validate_profile",
+            "Skipped address fragmentation because no country was provided or extracted.",
+        )
+    ]
+    assert llm.messages is None
+    assert profile.address_fields == {}
+
+
+def test_fragment_profile_address_reports_no_config_skip() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example GmbH",
+        address="Example Street 1, 10115 Berlin",
+    )
+    llm = _AddressFragmentationLLM('{"address_city": "Berlin"}')
+    reports = []
+
+    asyncio.run(
+        _fragment_profile_address(
+            llm,
+            profile,
+            "de",
+            lambda step, message: reports.append((step, message)),
+            "validate_profile",
+        )
+    )
+
+    assert reports == [
+        (
+            "validate_profile",
+            "Skipped address fragmentation because explicit --country=de resolved to de, "
+            "but no address fields config exists for country: de.",
+        )
+    ]
+    assert llm.messages is None
+    assert profile.address_fields == {}
 
 
 def test_parse_industry_selection_accepts_schema_like_properties_wrapper() -> None:

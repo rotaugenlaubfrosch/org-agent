@@ -156,6 +156,9 @@ def _print_profile_table(title: str, profile: OrganizationProfile, fields: tuple
     for field in fields:
         value = getattr(profile, field)
         table.add_row(field, "" if value is None else str(value))
+        if field == "address":
+            for address_field, address_value in profile.address_fields.items():
+                table.add_row(f"  {address_field}", address_value)
 
     console.print(table)
 
@@ -184,6 +187,7 @@ def _make_progress_logger():
         "crawl_page": "blue",
         "filter_links": "color(118)",
         "analyze_page": "color(201)",
+        "validate_profile": "color(51)",
         "finalize_profile": "yellow",
     }
 

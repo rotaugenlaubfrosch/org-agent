@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from org_agent.graph import run_lookup
-from org_agent.models import LookupInput, LookupResult, OrganizationProfile
+from org_agent.models import LookupInput, LookupResult, OrganizationProfile  # noqa: F401
 from org_agent.progress import ProgressCallback, report
 from org_agent.registry import normalize_country_code
 from org_agent.settings import Settings, validate_settings

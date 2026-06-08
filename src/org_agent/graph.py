@@ -5,7 +5,7 @@ import re
 from csv import reader as csv_reader
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import pycountry
 from langchain_core.exceptions import OutputParserException
@@ -58,6 +58,7 @@ EXTRACTABLE_PROFILE_FIELDS = (
 DESCRIPTION_PROFILE_FIELD = "description"
 INDUSTRY_PROFILE_FIELD = "industry"
 LINK_SELECTION_MAX_CANDIDATES = 25
+ADDRESS_FIELD_PREFIX = "address_"
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
@@ -330,6 +331,7 @@ def build_graph(
             return state
         _normalize_profile_country(state.profile)
         _validate_profile_email(state.profile, state.website_pages)
+        await _fragment_profile_address(llm, state.profile, country, progress, "validate_profile")
         return state
 
     async def finalize_profile(state: AgentState) -> AgentState:
@@ -532,6 +534,214 @@ def _load_industries(path: Path) -> list[str]:
             industries.append(industry)
             seen.add(industry)
     return industries
+
+
+async def _fragment_profile_address(
+    llm: BaseChatModel,
+    profile: OrganizationProfile,
+    country: str | None,
+    progress: ProgressCallback | None,
+    scope: str,
+) -> None:
+    if not profile.address:
+        return
+
+    config_path, config_reason = _address_fields_config_selection(country, profile.country)
+    report(progress, scope, config_reason)
+    if config_path is None:
+        return
+
+    config = _load_address_fields_config(config_path)
+    report(progress, scope, f"Therefore, using address fields config: {config_path}")
+
+    prompt = _address_fragmentation_prompt(profile.address, config)
+    messages = [
+        SystemMessage(content="You fragment postal addresses into configured JSON fields."),
+        HumanMessage(content=prompt),
+    ]
+    report(progress, scope, "Calling LLM for address fragmentation...")
+    response = await _address_fragmentation_llm(llm).ainvoke(messages)
+    try:
+        extracted = _parse_address_fragmentation_response(response)
+    except ValueError as exc:
+        report(progress, scope, f"Address fragmentation LLM output could not be parsed: {exc}")
+        return
+
+    report(
+        progress,
+        scope,
+        f"Address fragmentation LLM output: {json.dumps(extracted, ensure_ascii=False, sort_keys=True)}",
+    )
+    profile.address_fields = _validated_address_fields(profile.address, extracted, config)
+
+
+def _address_fields_config_path(country: str | None, profile_country: str | None) -> Path | None:
+    config_path, _reason = _address_fields_config_selection(country, profile_country)
+    return config_path
+
+
+def _address_fields_config_selection(
+    country: str | None,
+    profile_country: str | None,
+) -> tuple[Path | None, str]:
+    explicit_country = (country or "").strip()
+    if explicit_country:
+        country_code = _country_code(explicit_country)
+        if country_code is None:
+            return (
+                None,
+                "Skipped address fragmentation because explicit "
+                f"--country={explicit_country} could not be resolved to a country code.",
+            )
+        path = _address_fields_path(country_code)
+        if path.exists():
+            return (
+                path,
+                f"Address fields country source: explicit --country={explicit_country} -> {country_code}.",
+            )
+        return (
+            None,
+            "Skipped address fragmentation because explicit "
+            f"--country={explicit_country} resolved to {country_code}, but no address fields "
+            f"config exists for country: {country_code}.",
+        )
+
+    extracted_country = (profile_country or "").strip()
+    if extracted_country:
+        country_code = _country_code(extracted_country)
+        if country_code is None:
+            return (
+                None,
+                "Skipped address fragmentation because extracted "
+                f"profile.country={extracted_country} could not be resolved to a country code.",
+            )
+        path = _address_fields_path(country_code)
+        if path.exists():
+            return (
+                path,
+                "Address fields country source: extracted "
+                f"profile.country={extracted_country} -> {country_code}.",
+            )
+        return (
+            None,
+            "Skipped address fragmentation because extracted "
+            f"profile.country={extracted_country} resolved to {country_code}, but no address fields "
+            f"config exists for country: {country_code}.",
+        )
+
+    return (
+        None,
+        "Skipped address fragmentation because no country was provided or extracted.",
+    )
+
+
+def _address_fields_path(country_code: str) -> Path:
+    return Path(__file__).parent / "countries" / country_code / "address_fields.json"
+
+
+def _country_code(country: str | None) -> str | None:
+    normalized = (country or "").strip()
+    if not normalized:
+        return None
+
+    if len(normalized) == 2:
+        return normalized.lower()
+
+    try:
+        match = pycountry.countries.lookup(normalized)
+    except LookupError:
+        return None
+    return match.alpha_2.lower()
+
+
+def _load_address_fields_config(path: Path) -> dict[str, dict[str, object]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Address fields config must be a JSON object: {path}")
+
+    config: dict[str, dict[str, object]] = {}
+    for field, field_config in data.items():
+        if not isinstance(field, str) or not field.strip():
+            raise ValueError(f"Address fields config contains an invalid field name: {path}")
+        if not isinstance(field_config, dict):
+            raise ValueError(f"Address field {field!r} must be a JSON object: {path}")
+        if set(field_config) != {"prompt", "validation"}:
+            raise ValueError(
+                f"Address field {field!r} must contain exactly prompt and validation: {path}"
+            )
+        prompt = field_config["prompt"]
+        validation = field_config["validation"]
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError(f"Address field {field!r} prompt must be a non-empty string: {path}")
+        if not isinstance(validation, bool):
+            raise ValueError(f"Address field {field!r} validation must be a boolean: {path}")
+        config[field.strip()] = {"prompt": prompt.strip(), "validation": validation}
+    return config
+
+
+def _address_fragmentation_prompt(address: str, config: dict[str, dict[str, object]]) -> str:
+    fields = "\n".join(
+        f"- {ADDRESS_FIELD_PREFIX}{field}: {field_config['prompt']}"
+        for field, field_config in config.items()
+    )
+    return (
+        "Fragment the address into custom address fields.\n\n"
+        "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n"
+        "Only return configured fields.\n"
+        "Prefix every returned field name with address_.\n"
+        "Use null for fields that are not present.\n"
+        "Do not invent values.\n\n"
+        f"Address:\n{address}\n\n"
+        f"Configured fields:\n{fields}"
+    )
+
+
+def _address_fragmentation_llm(llm: BaseChatModel):
+    if type(llm).__name__ == "ChatOllama":
+        return llm.bind(format="json")
+    return llm
+
+
+def _parse_address_fragmentation_response(response: object) -> dict[str, Any]:
+    if isinstance(response, dict):
+        return response
+    content = str(getattr(response, "content", response)).strip()
+    if content.startswith("```json"):
+        content = content.removeprefix("```json").removesuffix("```").strip()
+    elif content.startswith("```"):
+        content = content.removeprefix("```").removesuffix("```").strip()
+    parsed = json.loads(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("response is not a JSON object")
+    return parsed
+
+
+def _validated_address_fields(
+    address: str,
+    extracted: dict[str, Any],
+    config: dict[str, dict[str, object]],
+) -> dict[str, str]:
+    address_fields: dict[str, str] = {}
+    for configured_field, field_config in config.items():
+        output_field = f"{ADDRESS_FIELD_PREFIX}{configured_field}"
+        value = extracted.get(output_field, extracted.get(configured_field))
+        if value in {None, ""}:
+            continue
+        value = str(value).strip()
+        if not value:
+            continue
+        if field_config["validation"] and not _address_contains_value(address, value):
+            continue
+        address_fields[output_field] = value
+    return address_fields
+
+
+def _address_contains_value(address: str, value: str) -> bool:
+    return _normalize_address_fragment(value) in _normalize_address_fragment(address)
+
+
+def _normalize_address_fragment(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
 
 
 def _shortlist_industries_by_embedding(

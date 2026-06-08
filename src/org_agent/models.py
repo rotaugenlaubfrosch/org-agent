@@ -75,6 +75,7 @@ class OrganizationProfile(BaseModel):
     )
     purpose: str | None = None
     address: str | None = None
+    address_fields: dict[str, str] = Field(default_factory=dict)
     legal_address: str | None = None
     phone: str | None = None
     email: str | None = None

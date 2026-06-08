@@ -21,6 +21,7 @@ def test_organization_profile_accepts_expected_fields() -> None:
         description="The organization develops software products.",
         purpose="Develop and distribute software.",
         address="Example Street 1",
+        address_fields={"address_street": "Example Street"},
         legal_address="Registry Street 10",
         phone="+1 555 0100",
         email="info@example.com",
@@ -39,6 +40,8 @@ def test_organization_profile_accepts_expected_fields() -> None:
     assert profile.queried_name == "Example Ltd"
     assert profile.official_company_name == "Example Ltd Official"
     assert profile.purpose == "Develop and distribute software."
+    assert profile.address == "Example Street 1"
+    assert profile.address_fields == {"address_street": "Example Street"}
     assert profile.legal_address == "Registry Street 10"
     assert profile.evidence[0].field == "website"
 
