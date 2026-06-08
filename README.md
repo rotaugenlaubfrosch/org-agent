@@ -15,6 +15,7 @@ It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, an
 - Crawls the website with Playwright. 
 - Follows useful links found on the website in breadth-first order, such as contact, imprint, legal, privacy, and about pages.
 - Optionally queries supported country registry APIs.
+- Optionally fragments website addresses into country-specific address fields.
 - Sends gathered evidence to an LLM.
 - Returns separate website and registry profiles with evidence entries.
 
@@ -69,7 +70,7 @@ Run `uv run org-agent` to show the help dashboard.
 Common lookup options:
 
 - `--website <url>`: required official website. Bare domains like `example.com` are accepted and normalized to `https://example.com`.
-- `--country <code>`: enable optional country registry integration, for example `ch`
+- `--country <code>`: enable optional country registry integration and country-specific address field derivation, for example `ch`
 - `--json`: print raw JSON output with separate `website_profile` and `registry_profile` objects
 - `--quiet`: suppress progress output
 
@@ -179,6 +180,66 @@ ORG_AGENT_REGISTRY_CH_PASSWORD=<Swiss registry password>
 
 Country registry responses are collected separately from the website crawl. They are returned in `registry_profile` and do not influence website crawling or website field extraction.
 
+## Country-Specific Address Fields
+
+Website addresses can be fragmented into country-specific address fields after the website profile has been validated. The original `address` value remains unchanged. Derived address fragments are stored in the nested `address_fields` object.
+
+Address field configs live at:
+
+```text
+src/org_agent/countries/<code>/address_fields.json
+```
+
+For example, the Swiss config is:
+
+```text
+src/org_agent/countries/ch/address_fields.json
+```
+
+Each configured address field must have exactly two keys:
+
+```json
+{
+  "city": {
+    "prompt": "Extract the city or locality.",
+    "validation": true
+  }
+}
+```
+
+The config format is JSON, not CSV. Do not include an `example` key.
+
+The configured field name is prefixed with `address_` in the output. For example, a config field named `city` is stored as `address_city`.
+
+Example output:
+
+```json
+{
+  "address": "Example Organization, Example Street 12, 12345 Example City",
+  "address_fields": {
+    "address_organization": "Example Organization",
+    "address_street": "Example Street",
+    "address_number": "12",
+    "address_postal_code": "12345",
+    "address_city": "Example City"
+  }
+}
+```
+
+Address field config selection uses this priority:
+
+- explicit `--country <code>`
+- extracted `profile.country`, resolved to an ISO alpha-2 country code when possible
+- skip address fragmentation if no country is available
+
+If the resolved country has no `address_fields.json`, address fragmentation is skipped.
+
+Validation behavior:
+
+- `validation: true` keeps an extracted value only if it appears in the original `address`, using case-insensitive whitespace-normalized comparison
+- `validation: false` keeps any non-empty LLM output for that configured field
+- fields not defined in the country JSON config are discarded
+
 ## Python API
 
 ```python
@@ -217,6 +278,7 @@ The result is a `LookupResult` with separate `website_profile` and `registry_pro
 - `description`
 - `purpose`
 - `address`
+- `address_fields`
 - `legal_address`
 - `phone`
 - `email`
