@@ -156,6 +156,7 @@ def _make_progress_logger():
         "crawl_page": "blue",
         "filter_links": "color(118)",
         "analyze_page": "color(201)",
+        "validate_profile": "color(51)",
         "finalize_profile": "yellow",
     }
 
