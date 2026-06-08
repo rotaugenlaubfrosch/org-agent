@@ -180,9 +180,9 @@ ORG_AGENT_REGISTRY_CH_PASSWORD=<Swiss registry password>
 
 Country registry responses are collected separately from the website crawl. They are returned in `registry_profile` and do not influence website crawling or website field extraction.
 
-## Country-Specific Address Fields
+## Customizable Country-Specific Address Fields
 
-Website addresses can be fragmented into country-specific address fields after the website profile has been validated. The original `address` value remains unchanged. Derived address fragments are stored in the nested `address_fields` object.
+Website addresses can be fragmented into custom country-specific address fields after the website profile has been validated. The original `address` value remains unchanged. Derived address fragments are stored in the nested `address_fields` object.
 
 Address field configs live at:
 
@@ -201,15 +201,13 @@ Each configured address field must have exactly two keys:
 ```json
 {
   "city": {
-    "prompt": "Extract the city or locality.",
+    "prompt": "Extract the city or locality from the address.",
     "validation": true
   }
 }
 ```
 
-The config format is JSON, not CSV. Do not include an `example` key.
-
-The configured field name is prefixed with `address_` in the output. For example, a config field named `city` is stored as `address_city`.
+The configured field name is prefixed with `address_` in the output. For example, a config field named `city` is stored as `address_city` because these are fields derived by the `address` field.
 
 Example output:
 
@@ -230,9 +228,7 @@ Address field config selection uses this priority:
 
 - explicit `--country <code>`
 - extracted `profile.country`, resolved to an ISO alpha-2 country code when possible
-- skip address fragmentation if no country is available
-
-If the resolved country has no `address_fields.json`, address fragmentation is skipped.
+- skip address fragmentation if no country is available or corresponding `address_fields.json` is missing
 
 Validation behavior:
 
