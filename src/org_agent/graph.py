@@ -328,10 +328,46 @@ def build_graph(
 
     async def validate_profile(state: AgentState) -> AgentState:
         if state.profile is None:
+            report(progress, "validate_profile", "Skipped profile validation: no profile extracted.")
             return state
+        report(progress, "validate_profile", "Validating extracted profile...")
+
+        country_before = state.profile.country
+        email_before = state.profile.email
+        had_website_pages = bool(state.website_pages)
+
         _normalize_profile_country(state.profile)
+        if country_before != state.profile.country:
+            report(
+                progress,
+                "validate_profile",
+                f"Normalized country: {country_before} -> {state.profile.country}",
+            )
+
         _validate_profile_email(state.profile, state.website_pages)
         await _fragment_profile_address(llm, state.profile, country, progress, "validate_profile")
+        if email_before in {None, ""}:
+            report(progress, "validate_profile", "Skipped email validation: no email extracted.")
+        elif not had_website_pages:
+            report(progress, "validate_profile", "Skipped email validation: no crawled website pages.")
+        else:
+            stripped_email = email_before.strip()
+            if not stripped_email:
+                report(progress, "validate_profile", "Removed blank email.")
+            elif state.profile.email is None:
+                report(
+                    progress,
+                    "validate_profile",
+                    f"Removed email not found in crawled website pages: {stripped_email}",
+                )
+            else:
+                if email_before != state.profile.email:
+                    report(
+                        progress,
+                        "validate_profile",
+                        f"Trimmed email whitespace: {email_before} -> {state.profile.email}",
+                    )
+                report(progress, "validate_profile", "Validated email: Found in crawled text")
         return state
 
     async def finalize_profile(state: AgentState) -> AgentState:

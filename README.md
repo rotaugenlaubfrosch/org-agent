@@ -6,7 +6,11 @@
 
 `org-agent` enriches an organization profile from a company or organization name and a known website.
 
-It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, and `uv`.
+It is a Python package and CLI tool built with LangGraph, Playwright, Typer, Rich, and uv.
+
+## LangGraph Graph Structure
+
+![LangGraph workflow](docs/schema.jpg)
 
 ## What It Does
 
@@ -18,10 +22,6 @@ It is a Python package and CLI built with LangGraph, Playwright, Typer, Rich, an
 - Optionally fragments website addresses into country-specific address fields.
 - Sends gathered evidence to an LLM.
 - Returns separate website and registry profiles with evidence entries.
-
-## LangGraph Graph Structure
-
-![LangGraph workflow](docs/schema.jpg)
 
 ## Setup
 
@@ -53,7 +53,7 @@ ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
 ORG_AGENT_CRAWL_MAX_PAGES=<pages, default 6>
 ORG_AGENT_CRAWL_MAX_DEPTH=<link depth, default 2>
 ORG_AGENT_CRAWL_LOG_ENABLED=<true|false, default true>
-ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, optional>
+ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, default project logs/>
 ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
 ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT=<system prompt for dedicated description extraction>
@@ -139,7 +139,7 @@ ORG_AGENT_CRAWL_MAX_PAGES=6
 ORG_AGENT_CRAWL_MAX_DEPTH=2
 ```
 
-Set `ORG_AGENT_CRAWL_LOG_DIR=logs` to save captured page text. Each command execution creates a new timestamped subdirectory and writes one `.txt` file per captured web page. Set `ORG_AGENT_CRAWL_LOG_ENABLED=false` to disable this logging.
+Captured page text is saved by default under the project's `logs/` directory. Each command execution creates a new timestamped subdirectory and writes one `.txt` file per captured web page. Set `ORG_AGENT_CRAWL_LOG_DIR` to override the directory, or set `ORG_AGENT_CRAWL_LOG_ENABLED=false` to disable this logging.
 
 To watch Playwright operate in a visible browser window, disable headless mode:
 
@@ -299,5 +299,4 @@ Show CLI help:
 
 ```bash
 uv run org-agent --help
-uv run org-agent lookup --help
 ```

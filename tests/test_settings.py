@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from org_agent.settings import (
+    DEFAULT_CRAWL_LOG_DIR,
     DEFAULT_DESCRIPTION_SYSTEM_PROMPT,
     DEFAULT_INDUSTRIES_CSV,
     Settings,
@@ -31,7 +32,7 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path)
     assert settings.crawl_max_pages == 6
     assert settings.crawl_max_depth == 2
     assert settings.crawl_log_enabled is True
-    assert settings.crawl_log_dir is None
+    assert settings.crawl_log_dir == DEFAULT_CRAWL_LOG_DIR
     assert settings.playwright_headless is True
     assert settings.playwright_slow_mo == 0
     assert settings.description_system_prompt == DEFAULT_DESCRIPTION_SYSTEM_PROMPT
@@ -81,6 +82,17 @@ def test_settings_accepts_crawl_log_dir(monkeypatch, tmp_path: Path) -> None:
     settings = Settings()
 
     assert settings.crawl_log_dir == "logs"
+
+
+def test_settings_uses_default_crawl_log_dir_for_blank_value(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORG_AGENT_CRAWL_LOG_DIR", "")
+
+    settings = Settings()
+
+    assert settings.crawl_log_dir == DEFAULT_CRAWL_LOG_DIR
 
 
 def test_settings_accepts_disabled_crawl_logging(monkeypatch, tmp_path: Path) -> None:
