@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
 from dotenv import find_dotenv, load_dotenv
 from pydantic import AliasChoices, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from org_agent.models import AppConfig, RegistryEndpointConfig
+from org_agent.registry import validate_country_code
 
 
 DEFAULT_DESCRIPTION_SYSTEM_PROMPT = (
@@ -31,8 +30,6 @@ class Settings(BaseSettings):
     api_key: str | None = Field(default=None, alias="ORG_AGENT_API_KEY")
     search_provider: str | None = Field(default=None, alias="ORG_AGENT_SEARCH_PROVIDER")
     search_api_key: str | None = Field(default=None, alias="ORG_AGENT_SEARCH_API_KEY")
-    zefix_username: str | None = Field(default=None, alias="ORG_AGENT_ZEFIX_USERNAME")
-    zefix_password: str | None = Field(default=None, alias="ORG_AGENT_ZEFIX_PASSWORD")
     ollama_base_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices("ORG_AGENT_OLLAMA_BASE_URL", "OLLAMA_BASE_URL"),
@@ -93,7 +90,7 @@ class Settings(BaseSettings):
         return value
 
 
-def validate_settings(settings: Settings, selected_registries: list[str] | None = None) -> None:
+def validate_settings(settings: Settings, country: str | None = None) -> None:
     missing: list[str] = []
     if _blank(settings.llm_provider):
         missing.append("ORG_AGENT_LLM_PROVIDER")
@@ -105,13 +102,6 @@ def validate_settings(settings: Settings, selected_registries: list[str] | None 
     if provider == "ollama" and _blank(settings.ollama_base_url):
         missing.append("ORG_AGENT_OLLAMA_BASE_URL")
 
-    selected = {(name or "").lower().strip() for name in (selected_registries or [])}
-    if "zefix" in selected:
-        if _blank(settings.zefix_username):
-            missing.append("ORG_AGENT_ZEFIX_USERNAME")
-        if _blank(settings.zefix_password):
-            missing.append("ORG_AGENT_ZEFIX_PASSWORD")
-
     if missing:
         formatted = ", ".join(dict.fromkeys(missing))
         raise ValueError(f"Missing required environment configuration: {formatted}")
@@ -122,53 +112,8 @@ def validate_settings(settings: Settings, selected_registries: list[str] | None 
             "Unsupported ORG_AGENT_LLM_PROVIDER. Supported providers: openai, anthropic, ollama."
         )
 
+    validate_country_code(country)
+
 
 def _blank(value: str | None) -> bool:
     return value is None or value.strip() == ""
-
-
-def load_app_config(path: str | Path | None, selected_registries: list[str] | None = None) -> AppConfig:
-    if path is None:
-        config = AppConfig()
-    else:
-        config_path = Path(path)
-        if not config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-
-        with config_path.open("r", encoding="utf-8") as config_file:
-            data = yaml.safe_load(config_file) or {}
-        config = AppConfig.model_validate(data)
-
-    return _apply_selected_registries(config, selected_registries)
-
-
-def _apply_selected_registries(
-    config: AppConfig,
-    selected_registries: list[str] | None,
-) -> AppConfig:
-    if not selected_registries:
-        return config
-
-    selected = {(name or "").lower().strip() for name in selected_registries}
-    selected.discard("")
-    unsupported = selected - {"zefix"}
-    if unsupported:
-        bad = ", ".join(sorted(unsupported))
-        raise ValueError(f"Unsupported --registry value(s): {bad}. Supported values: zefix.")
-
-    existing_names = {registry.name.lower().strip() for registry in config.registries}
-    for registry in config.registries:
-        if registry.name.lower().strip() in selected or (registry.provider or "").lower().strip() in selected:
-            registry.enabled = True
-
-    if "zefix" in selected and "zefix" not in existing_names:
-        config.registries.append(
-            RegistryEndpointConfig(
-                name="zefix",
-                provider="zefix",
-                base_url="https://www.zefix.admin.ch/ZefixPublicREST",
-                enabled=True,
-            )
-        )
-
-    return AppConfig.model_validate(config.model_dump())

@@ -1,3 +1,6 @@
+from io import StringIO
+
+from rich.console import Console
 import json
 
 from typer.testing import CliRunner
@@ -6,70 +9,20 @@ from org_agent import cli
 from org_agent.models import OrganizationProfile
 
 
-runner = CliRunner()
-
-
-def test_cli_without_arguments_shows_help() -> None:
-    result = runner.invoke(cli.app, [])
-
-    assert result.exit_code == 0
-    assert "Enrich organization profiles" in result.output
-    assert "--website" in result.output
-
-
-def test_cli_runs_lookup_from_root_command(monkeypatch) -> None:
-    captured = {}
-
-    def fake_lookup_organization(
-        name: str,
-        website: str | None = None,
-        config: str | None = None,
-        registries: list[str] | None = None,
-        progress=None,
-    ) -> OrganizationProfile:
-        captured["name"] = name
-        captured["website"] = website
-        captured["config"] = config
-        captured["registries"] = registries
-        captured["progress"] = progress
-        return OrganizationProfile(queried_name=name, website="https://example.com/")
-
-    monkeypatch.setattr(cli, "lookup_organization", fake_lookup_organization)
-
-    result = runner.invoke(
-        cli.app,
-        [
-            "Example Ltd",
-            "--website",
-            "example.com",
-            "--config",
-            "registries.yml",
-            "--registry",
-            "zefix",
-            "--json",
-            "--quiet",
-        ],
+def test_print_profile_table_indents_address_fields(monkeypatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        address="Example Street 1, 8000 Zürich",
+        address_fields={"address_street": "Example Street", "address_city": "Zürich"},
     )
 
-    assert result.exit_code == 0
-    assert captured == {
-        "name": "Example Ltd",
-        "website": "example.com",
-        "config": "registries.yml",
-        "registries": ["zefix"],
-        "progress": None,
-    }
-    assert json.loads(result.output)["queried_name"] == "Example Ltd"
+    cli._print_profile_table("Website Profile", profile, ("address",))
 
-
-def test_cli_requires_website_for_root_lookup() -> None:
-    result = runner.invoke(cli.app, ["Example Ltd"])
-
-    assert result.exit_code == 1
-    assert "--website is required" in result.output
-
-
-def test_cli_lookup_subcommand_is_not_available() -> None:
-    result = runner.invoke(cli.app, ["lookup", "Example Ltd", "--website", "example.com"])
-
-    assert result.exit_code == 2
+    rendered = output.getvalue()
+    assert "address" in rendered
+    assert "  address_street" in rendered
+    assert "Example Street" in rendered
+    assert "  address_city" in rendered
+    assert "Zürich" in rendered

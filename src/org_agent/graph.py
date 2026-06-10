@@ -5,7 +5,7 @@ import re
 from csv import reader as csv_reader
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import pycountry
 from langchain_core.exceptions import OutputParserException
@@ -18,12 +18,12 @@ from pydantic import BaseModel, ValidationError
 from org_agent.llm import build_chat_model
 from org_agent.models import (
     AgentState,
-    AppConfig,
     CrawlDecision,
     CrawlNode,
     CrawlTarget,
     EvidenceEntry,
     IndustrySelection,
+    LookupResult,
     LookupInput,
     OrganizationProfile,
     OrganizationProfilePatch,
@@ -33,7 +33,7 @@ from org_agent.models import (
     WebsitePage,
 )
 from org_agent.progress import ProgressCallback, report
-from org_agent.registry import query_registries
+from org_agent.registry import query_country_registry
 from org_agent.settings import Settings
 from org_agent.website import (
     INFORMATION_LINK_SIGNALS,
@@ -58,6 +58,7 @@ EXTRACTABLE_PROFILE_FIELDS = (
 DESCRIPTION_PROFILE_FIELD = "description"
 INDUSTRY_PROFILE_FIELD = "industry"
 LINK_SELECTION_MAX_CANDIDATES = 25
+ADDRESS_FIELD_PREFIX = "address_"
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
@@ -78,7 +79,7 @@ NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE = (
 
 def build_graph(
     settings: Settings,
-    app_config: AppConfig,
+    country: str | None = None,
     progress: ProgressCallback | None = None,
 ):
     llm = build_chat_model(settings)
@@ -95,27 +96,24 @@ def build_graph(
         return state
 
     async def call_registries(state: AgentState) -> AgentState:
-        enabled_count = sum(1 for registry in app_config.registries if registry.enabled)
-        if enabled_count == 0:
+        if not country:
             report(
                 progress,
                 "call_registries",
-                "Skipped registry lookup because no registries are enabled.",
+                "Skipped registry lookup because no country registry was selected.",
             )
             return state
-        report(progress, "call_registries", f"Querying {enabled_count} configured registry endpoint(s).")
-        state.registry_results = await query_registries(
+        state.registry_results = await query_country_registry(
+            country,
             state.input.name,
-            app_config,
             settings.request_timeout,
+            context_text=_registry_context_text(state),
             progress=progress,
             scope="call_registries",
         )
         if state.profile is not None:
             for result in state.registry_results:
-                filled_fields = _merge_profile_patch(state.profile, result.profile_patch)
-                _report_filled_fields(progress, "call_registries", filled_fields)
-                _extend_evidence_dedup(state.profile.evidence, result.evidence)
+                _report_registry_result_fields(progress, "call_registries", result.profile_patch)
         report(progress, "call_registries", f"Collected {len(state.registry_results)} registry result(s).")
         return state
 
@@ -209,7 +207,6 @@ def build_graph(
                 state.profile.website,
                 requested_fields,
                 state.current_page,
-                state.registry_results,
                 progress,
                 "analyze_page",
             )
@@ -295,6 +292,7 @@ def build_graph(
         node.reason = extraction.reasoning
         _report_page_analysis(progress, "analyze_page", analysis)
 
+        queued_selected_link = False
         if state.current_crawl_depth < settings.crawl_max_depth:
             for link in state.candidate_links:
                 if link.url not in selected_urls:
@@ -319,8 +317,13 @@ def build_graph(
                 )
                 state.queued_urls.add(link.url)
                 state.next_crawl_node_id += 1
+                queued_selected_link = True
 
-        state.should_continue_crawl = _should_continue_crawl(state, settings)
+        state.should_continue_crawl = _should_continue_crawl(
+            state,
+            settings,
+            queued_selected_link=queued_selected_link,
+        )
         return state
 
     async def validate_profile(state: AgentState) -> AgentState:
@@ -342,6 +345,7 @@ def build_graph(
             )
 
         _validate_profile_email(state.profile, state.website_pages)
+        await _fragment_profile_address(llm, state.profile, country, progress, "validate_profile")
         if email_before in {None, ""}:
             report(progress, "validate_profile", "Skipped email validation: no email extracted.")
         elif not had_website_pages:
@@ -372,7 +376,6 @@ def build_graph(
         state.profile.queried_name = state.input.name
         if state.website and not state.profile.website:
             state.profile.website = state.website
-        _fill_registry_only_field_messages(state.profile, app_config)
         _write_crawl_text_logs(state, settings, progress, "finalize_profile")
         for error in state.errors:
             state.profile.evidence.append(
@@ -392,8 +395,7 @@ def build_graph(
     graph.add_node("validate_profile", validate_profile)
     graph.add_node("finalize_profile", finalize_profile)
     graph.set_entry_point("initialize")
-    graph.add_edge("initialize", "call_registries")
-    graph.add_edge("call_registries", "seed_crawl")
+    graph.add_edge("initialize", "seed_crawl")
     graph.add_edge("seed_crawl", "crawl_page")
     graph.add_edge("crawl_page", "filter_links")
     graph.add_edge("filter_links", "analyze_page")
@@ -402,7 +404,8 @@ def build_graph(
         lambda state: "crawl_page" if state.should_continue_crawl else "validate_profile",
         {"crawl_page": "crawl_page", "validate_profile": "validate_profile"},
     )
-    graph.add_edge("validate_profile", "finalize_profile")
+    graph.add_edge("validate_profile", "call_registries")
+    graph.add_edge("call_registries", "finalize_profile")
     graph.add_edge("finalize_profile", END)
     return graph.compile()
 
@@ -410,15 +413,21 @@ def build_graph(
 async def run_lookup(
     lookup_input: LookupInput,
     settings: Settings,
-    app_config: AppConfig,
+    country: str | None = None,
     progress: ProgressCallback | None = None,
-) -> OrganizationProfile:
-    graph = build_graph(settings, app_config, progress=progress)
+) -> LookupResult:
+    graph = build_graph(settings, country=country, progress=progress)
     final_state = await graph.ainvoke(AgentState(input=lookup_input))
     state = AgentState.model_validate(final_state)
     if state.profile is None:
         raise RuntimeError("Lookup did not produce an organization profile.")
-    return state.profile
+    registry_profile = _build_registry_profile(
+        state.input.name,
+        state.registry_results,
+        progress,
+        "finalize_profile",
+    )
+    return LookupResult(website_profile=state.profile, registry_profile=registry_profile)
 
 
 async def _extract_page_info(
@@ -428,7 +437,6 @@ async def _extract_page_info(
     website: str | None,
     requested_fields: list[str],
     current_page: WebsitePage,
-    registry_results: list,
     progress: ProgressCallback | None,
     scope: str,
 ) -> PageExtraction:
@@ -444,8 +452,7 @@ async def _extract_page_info(
         f"{parser.get_format_instructions()}\n\n"
         f"Organization name: {organization_name}\n\n"
         f"Known website: {website or 'unknown'}\n\n"
-        f"Current page:\n{current_page.model_dump_json(indent=2)}\n\n"
-        f"Registry results:\n{json.dumps([r.model_dump() for r in registry_results], ensure_ascii=False, indent=2)}"
+        f"Current page:\n{current_page.model_dump_json(indent=2)}"
     )
     messages = [
         SystemMessage(
@@ -563,6 +570,214 @@ def _load_industries(path: Path) -> list[str]:
             industries.append(industry)
             seen.add(industry)
     return industries
+
+
+async def _fragment_profile_address(
+    llm: BaseChatModel,
+    profile: OrganizationProfile,
+    country: str | None,
+    progress: ProgressCallback | None,
+    scope: str,
+) -> None:
+    if not profile.address:
+        return
+
+    config_path, config_reason = _address_fields_config_selection(country, profile.country)
+    report(progress, scope, config_reason)
+    if config_path is None:
+        return
+
+    config = _load_address_fields_config(config_path)
+    report(progress, scope, f"Therefore, using address fields config: {config_path}")
+
+    prompt = _address_fragmentation_prompt(profile.address, config)
+    messages = [
+        SystemMessage(content="You fragment postal addresses into configured JSON fields."),
+        HumanMessage(content=prompt),
+    ]
+    report(progress, scope, "Calling LLM for address fragmentation...")
+    response = await _address_fragmentation_llm(llm).ainvoke(messages)
+    try:
+        extracted = _parse_address_fragmentation_response(response)
+    except ValueError as exc:
+        report(progress, scope, f"Address fragmentation LLM output could not be parsed: {exc}")
+        return
+
+    report(
+        progress,
+        scope,
+        f"Address fragmentation LLM output: {json.dumps(extracted, ensure_ascii=False, sort_keys=True)}",
+    )
+    profile.address_fields = _validated_address_fields(profile.address, extracted, config)
+
+
+def _address_fields_config_path(country: str | None, profile_country: str | None) -> Path | None:
+    config_path, _reason = _address_fields_config_selection(country, profile_country)
+    return config_path
+
+
+def _address_fields_config_selection(
+    country: str | None,
+    profile_country: str | None,
+) -> tuple[Path | None, str]:
+    explicit_country = (country or "").strip()
+    if explicit_country:
+        country_code = _country_code(explicit_country)
+        if country_code is None:
+            return (
+                None,
+                "Skipped address fragmentation because explicit "
+                f"--country={explicit_country} could not be resolved to a country code.",
+            )
+        path = _address_fields_path(country_code)
+        if path.exists():
+            return (
+                path,
+                f"Address fields country source: explicit --country={explicit_country} -> {country_code}.",
+            )
+        return (
+            None,
+            "Skipped address fragmentation because explicit "
+            f"--country={explicit_country} resolved to {country_code}, but no address fields "
+            f"config exists for country: {country_code}.",
+        )
+
+    extracted_country = (profile_country or "").strip()
+    if extracted_country:
+        country_code = _country_code(extracted_country)
+        if country_code is None:
+            return (
+                None,
+                "Skipped address fragmentation because extracted "
+                f"profile.country={extracted_country} could not be resolved to a country code.",
+            )
+        path = _address_fields_path(country_code)
+        if path.exists():
+            return (
+                path,
+                "Address fields country source: extracted "
+                f"profile.country={extracted_country} -> {country_code}.",
+            )
+        return (
+            None,
+            "Skipped address fragmentation because extracted "
+            f"profile.country={extracted_country} resolved to {country_code}, but no address fields "
+            f"config exists for country: {country_code}.",
+        )
+
+    return (
+        None,
+        "Skipped address fragmentation because no country was provided or extracted.",
+    )
+
+
+def _address_fields_path(country_code: str) -> Path:
+    return Path(__file__).parent / "countries" / country_code / "address_fields.json"
+
+
+def _country_code(country: str | None) -> str | None:
+    normalized = (country or "").strip()
+    if not normalized:
+        return None
+
+    if len(normalized) == 2:
+        return normalized.lower()
+
+    try:
+        match = pycountry.countries.lookup(normalized)
+    except LookupError:
+        return None
+    return match.alpha_2.lower()
+
+
+def _load_address_fields_config(path: Path) -> dict[str, dict[str, object]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Address fields config must be a JSON object: {path}")
+
+    config: dict[str, dict[str, object]] = {}
+    for field, field_config in data.items():
+        if not isinstance(field, str) or not field.strip():
+            raise ValueError(f"Address fields config contains an invalid field name: {path}")
+        if not isinstance(field_config, dict):
+            raise ValueError(f"Address field {field!r} must be a JSON object: {path}")
+        if set(field_config) != {"prompt", "validation"}:
+            raise ValueError(
+                f"Address field {field!r} must contain exactly prompt and validation: {path}"
+            )
+        prompt = field_config["prompt"]
+        validation = field_config["validation"]
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError(f"Address field {field!r} prompt must be a non-empty string: {path}")
+        if not isinstance(validation, bool):
+            raise ValueError(f"Address field {field!r} validation must be a boolean: {path}")
+        config[field.strip()] = {"prompt": prompt.strip(), "validation": validation}
+    return config
+
+
+def _address_fragmentation_prompt(address: str, config: dict[str, dict[str, object]]) -> str:
+    fields = "\n".join(
+        f"- {ADDRESS_FIELD_PREFIX}{field}: {field_config['prompt']}"
+        for field, field_config in config.items()
+    )
+    return (
+        "Fragment the address into custom address fields.\n\n"
+        "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n"
+        "Only return configured fields.\n"
+        "Prefix every returned field name with address_.\n"
+        "Use null for fields that are not present.\n"
+        "Do not invent values.\n\n"
+        f"Address:\n{address}\n\n"
+        f"Configured fields:\n{fields}"
+    )
+
+
+def _address_fragmentation_llm(llm: BaseChatModel):
+    if type(llm).__name__ == "ChatOllama":
+        return llm.bind(format="json")
+    return llm
+
+
+def _parse_address_fragmentation_response(response: object) -> dict[str, Any]:
+    if isinstance(response, dict):
+        return response
+    content = str(getattr(response, "content", response)).strip()
+    if content.startswith("```json"):
+        content = content.removeprefix("```json").removesuffix("```").strip()
+    elif content.startswith("```"):
+        content = content.removeprefix("```").removesuffix("```").strip()
+    parsed = json.loads(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("response is not a JSON object")
+    return parsed
+
+
+def _validated_address_fields(
+    address: str,
+    extracted: dict[str, Any],
+    config: dict[str, dict[str, object]],
+) -> dict[str, str]:
+    address_fields: dict[str, str] = {}
+    for configured_field, field_config in config.items():
+        output_field = f"{ADDRESS_FIELD_PREFIX}{configured_field}"
+        value = extracted.get(output_field, extracted.get(configured_field))
+        if value in {None, ""}:
+            continue
+        value = str(value).strip()
+        if not value:
+            continue
+        if field_config["validation"] and not _address_contains_value(address, value):
+            continue
+        address_fields[output_field] = value
+    return address_fields
+
+
+def _address_contains_value(address: str, value: str) -> bool:
+    return _normalize_address_fragment(value) in _normalize_address_fragment(address)
+
+
+def _normalize_address_fragment(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
 
 
 def _shortlist_industries_by_embedding(
@@ -826,6 +1041,73 @@ def _report_filled_fields(
         report(progress, step, f"Filled {field}: {_truncate_progress_value(value)}")
 
 
+def _report_registry_result_fields(
+    progress: ProgressCallback | None,
+    step: str,
+    patch: OrganizationProfilePatch,
+) -> None:
+    for field, value in patch.model_dump().items():
+        if value not in {None, ""}:
+            report(progress, step, f"Registry returned {field}: {_truncate_progress_value(str(value))}")
+
+
+def _build_registry_profile(
+    queried_name: str,
+    registry_results: list,
+    progress: ProgressCallback | None = None,
+    step: str = "finalize_profile",
+) -> OrganizationProfile | None:
+    if not registry_results:
+        return None
+
+    profile = OrganizationProfile(queried_name=queried_name)
+    for result in registry_results:
+        filled_fields = _merge_profile_patch(profile, result.profile_patch)
+        _report_filled_fields(progress, step, filled_fields)
+        _extend_evidence_dedup(profile.evidence, _matching_profile_evidence(profile, result.evidence))
+
+    _normalize_profile_country(profile)
+    if not any(getattr(profile, field) not in {None, ""} for field in OrganizationProfilePatch.model_fields):
+        return None
+    return profile
+
+
+def _registry_context_text(state: AgentState) -> str:
+    parts: list[str] = []
+    if state.profile is not None:
+        for value in (state.profile.website, state.profile.description, state.profile.industry):
+            if value:
+                parts.append(value)
+    parts.extend(page.text for page in state.website_pages)
+    return "\n".join(parts)
+
+
+def _merge_profile_patch_missing_only(
+    profile: OrganizationProfile,
+    patch: OrganizationProfilePatch,
+) -> list[tuple[str, str]]:
+    filled_fields: list[tuple[str, str]] = []
+    for field, value in patch.model_dump().items():
+        if value in {None, ""} or getattr(profile, field) not in {None, ""}:
+            continue
+        setattr(profile, field, value)
+        filled_fields.append((field, str(value)))
+    return filled_fields
+
+
+def _matching_profile_evidence(
+    profile: OrganizationProfile,
+    evidence: list[EvidenceEntry],
+) -> list[EvidenceEntry]:
+    matching: list[EvidenceEntry] = []
+    for entry in evidence:
+        if not hasattr(profile, entry.field):
+            continue
+        if entry.value is None or getattr(profile, entry.field) == entry.value:
+            matching.append(entry)
+    return matching
+
+
 def _truncate_progress_value(value: str, max_length: int = 60) -> str:
     if len(value) <= max_length:
         return value
@@ -865,9 +1147,11 @@ def _keep_requested_extraction_fields(extraction: PageExtraction, requested_fiel
     extraction.missing_fields = [field for field in extraction.missing_fields if field in requested]
 
 
-def _fill_registry_only_field_messages(profile: OrganizationProfile, app_config: AppConfig) -> None:
-    has_enabled_registry = any(registry.enabled for registry in app_config.registries)
-    if has_enabled_registry:
+def _fill_registry_only_field_messages(
+    profile: OrganizationProfile,
+    has_registry_results: bool = False,
+) -> None:
+    if has_registry_results:
         return
 
     registry_only_fields = {
@@ -933,11 +1217,17 @@ def _slugify(value: str) -> str:
     return slug[:80] or "page"
 
 
-def _should_continue_crawl(state: AgentState, settings: Settings) -> bool:
+def _should_continue_crawl(
+    state: AgentState,
+    settings: Settings,
+    queued_selected_link: bool = False,
+) -> bool:
     if len(state.website_pages) >= settings.crawl_max_pages:
         return False
     if not state.pending_urls:
         return False
+    if queued_selected_link:
+        return True
     if state.page_analysis and state.page_analysis.is_complete and _has_minimum_profile(state.profile):
         return False
     return True

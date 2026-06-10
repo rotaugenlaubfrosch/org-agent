@@ -18,8 +18,10 @@ It is a Python package and CLI tool built with LangGraph, Playwright, Typer, Ric
 - Uses the provided website as the crawl starting point.
 - Crawls the website with Playwright. 
 - Follows useful links found on the website in breadth-first order, such as contact, imprint, legal, privacy, and about pages.
-- Optionally queries configured registry API endpoints if provided.
-- Returns a structured organization profile with evidence entries.
+- Optionally queries supported country registry APIs.
+- Optionally fragments website addresses into country-specific address fields.
+- Sends gathered evidence to an LLM.
+- Returns separate website and registry profiles with evidence entries.
 
 ## Setup
 
@@ -42,9 +44,9 @@ ORG_AGENT_API_KEY=<provider API key>
 # Required for Ollama:
 ORG_AGENT_OLLAMA_BASE_URL=<Ollama base URL>
 
-# Optional: Swiss company register (Zefix) credentials for --registry zefix
-ORG_AGENT_ZEFIX_USERNAME=<zefix username>
-ORG_AGENT_ZEFIX_PASSWORD=<zefix password>
+# Optional: Swiss company register credentials for --country ch
+ORG_AGENT_REGISTRY_CH_USERNAME=<Swiss registry username>
+ORG_AGENT_REGISTRY_CH_PASSWORD=<Swiss registry password>
 
 # Optional runtime environment variables:
 ORG_AGENT_REQUEST_TIMEOUT=<seconds, default 20>
@@ -65,20 +67,46 @@ ORG_AGENT_INDUSTRY_SHORTLIST_SIZE=<count, default 25>
 
 Run `uv run org-agent` to show the help dashboard.
 
-Run a lookup with `uv run org-agent "<company name>" --website <url>`.
-
 Common lookup options:
 
-```text
-Option            Effect
---website, -w     Required official website. Bare domains like example.com are accepted.
---registry        Enable optional registry provider, e.g. zefix. Can be repeated.
---config, -c      Load registry endpoint configuration from YAML.
---json            Print the raw OrganizationProfile JSON.
---quiet, -q       Suppress live progress output and print only the result.
+- `--website <url>`: required official website. Bare domains like `example.com` are accepted and normalized to `https://example.com`.
+- `--country <code>`: enable optional country registry integration and country-specific address field derivation, for example `ch`
+- `--json`: print raw JSON output with separate `website_profile` and `registry_profile` objects
+- `--quiet`: suppress progress output
+
+Run with a known website:
+
+```bash
+uv run org-agent lookup "Example Ltd" --website https://example.com/
 ```
 
-`--website` is required even when registry lookup is enabled.
+Bare domains are accepted:
+
+```bash
+uv run org-agent lookup "Example Ltd" --website example.com
+```
+
+Print JSON:
+
+```bash
+uv run org-agent lookup "Example Ltd" --website https://example.com --json
+```
+
+Suppress progress output:
+
+```bash
+uv run org-agent lookup "Example Ltd" --website https://example.com --quiet
+```
+
+The `lookup` command supports `--quiet` to suppress the live trace and show only the result.
+
+Use a country registry integration:
+
+```bash
+uv run org-agent lookup "Example Ltd" --website example.com --country ch
+```
+
+`--website` is required even when country registry lookup is enabled. The `--country` option selects the registry API integration only; it does not affect which website is crawled or which website fields are extracted. If the required country registry credentials are missing, the registry lookup is skipped and the website crawl continues normally.
 
 ## Website Crawling
  
@@ -139,37 +167,87 @@ website     |-- Imprint -> https://www.example.com/imprint  LLM input, 1300 char
 website     `-- Privacy -> https://www.example.com/privacy  queued, not visited
 ```
 
-## Registry Config
+## Country Registries
 
-Registry APIs are optional. The config is intentionally generic because registry APIs differ by country and provider.
+Country registry APIs are optional and selected by country code. Supported country codes currently include `ch` for the Swiss company register.
 
-Example `org-agent.yaml`:
+Swiss registry credentials are optional. If either value is missing, `--country ch` skips the registry lookup and continues with the website crawl.
 
-```yaml
-registries:
-  - name: example_registry
-    base_url: https://api.example.com/search
-    method: GET
-    query_param: q
-    api_key_env: EXAMPLE_REGISTRY_API_KEY
-    api_key_header: Authorization
-    api_key_prefix: "Bearer "
-    enabled: true
+```env
+ORG_AGENT_REGISTRY_CH_USERNAME=<Swiss registry username>
+ORG_AGENT_REGISTRY_CH_PASSWORD=<Swiss registry password>
 ```
 
-Registry responses are collected and passed to the extraction step as evidence.
+Country registry responses are collected separately from the website crawl. They are returned in `registry_profile` and do not influence website crawling or website field extraction.
+
+## Customizable Country-Specific Address Fields
+
+Website addresses can be fragmented into custom country-specific address fields after the website profile has been validated. The original `address` value remains unchanged. Derived address fragments are stored in the nested `address_fields` object.
+
+Address field configs live at:
+
+```text
+src/org_agent/countries/<code>/address_fields.json
+```
+
+For example, the Swiss config is:
+
+```text
+src/org_agent/countries/ch/address_fields.json
+```
+
+Each configured address field must have exactly two keys:
+
+```json
+{
+  "city": {
+    "prompt": "Extract the city or locality from the address.",
+    "validation": true
+  }
+}
+```
+
+The configured field name is prefixed with `address_` in the output. For example, a config field named `city` is stored as `address_city` because these are fields derived by the `address` field.
+
+Example output:
+
+```json
+{
+  "address": "Example Organization, Example Street 12, 12345 Example City",
+  "address_fields": {
+    "address_organization": "Example Organization",
+    "address_street": "Example Street",
+    "address_number": "12",
+    "address_postal_code": "12345",
+    "address_city": "Example City"
+  }
+}
+```
+
+Address field config selection uses this priority:
+
+- explicit `--country <code>`
+- extracted `profile.country`, resolved to an ISO alpha-2 country code when possible
+- skip address fragmentation if no country is available or corresponding `address_fields.json` is missing
+
+Validation behavior:
+
+- `validation: true` keeps an extracted value only if it appears in the original `address`, using case-insensitive whitespace-normalized comparison
+- `validation: false` keeps any non-empty LLM output for that configured field
+- fields not defined in the country JSON config are discarded
 
 ## Python API
 
 ```python
 from org_agent import lookup_organization
 
-profile = lookup_organization(
+result = lookup_organization(
     "Example Ltd",
     website="https://example.com",
 )
 
-print(profile.model_dump())
+print(result.website_profile.model_dump())
+print(result.registry_profile.model_dump() if result.registry_profile else None)
 ```
 
 Async API:
@@ -177,7 +255,7 @@ Async API:
 ```python
 from org_agent.api import lookup_organization_async
 
-profile = await lookup_organization_async(
+result = await lookup_organization_async(
     "Example Ltd",
     website="https://example.com",
 )
@@ -185,7 +263,7 @@ profile = await lookup_organization_async(
 
 ## Output Fields
 
-The result is an `OrganizationProfile` with:
+The result is a `LookupResult` with separate `website_profile` and `registry_profile` entries. Each profile is an `OrganizationProfile` with:
 
 - `queried_name`
 - `official_company_name`
@@ -196,6 +274,7 @@ The result is an `OrganizationProfile` with:
 - `description`
 - `purpose`
 - `address`
+- `address_fields`
 - `legal_address`
 - `phone`
 - `email`
@@ -203,9 +282,9 @@ The result is an `OrganizationProfile` with:
 - `region`
 - `evidence`
 
-The `queried_name` field is the original name passed to the CLI or API. The CLI and experiment evaluator display the same ordered scalar fields. The `description` is generated by a dedicated description prompt configured with `ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT`. The `industry` field is selected from the configured industries CSV and may contain multiple comma-separated canonical entries when `ORG_AGENT_MAX_INDUSTRIES` is greater than 1. The `official_company_name`, `registration_id`, `purpose`, `legal_address`, and `region` fields are registry-only and are not crawled from websites; if no third-party registry is attached, they contain messages explaining that limitation. The `evidence` entries explain sources and decisions.
+The `queried_name` field is the original name passed to the lookup command or API. The CLI displays website and registry fields in separate tables. The `description` is generated by a dedicated description prompt configured with `ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT`. The `industry` field is selected from the configured industries CSV and may contain multiple comma-separated canonical entries when `ORG_AGENT_MAX_INDUSTRIES` is greater than 1. Fields such as `legal_form` and `country` may appear in both `website_profile` and `registry_profile` because they come from independent sources. The `evidence` entries explain sources and decisions for each profile.
 
-The experiment evaluator accepts the same registry inputs as normal lookups, for example `--registry zefix` or `--config registries.yml`.
+The experiment evaluator accepts the same country registry input as normal lookups, for example `--country ch`.
 
 ## Development
 
