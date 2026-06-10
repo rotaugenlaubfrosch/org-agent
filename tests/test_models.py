@@ -14,7 +14,8 @@ def test_organization_profile_accepts_expected_fields() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
         official_company_name="Example Ltd Official",
-        website="https://example.com",
+        queried_website="https://example.com",
+        queried_country="CH",
         registration_id="12345",
         legal_form="Limited company",
         industry="Software",
@@ -29,7 +30,7 @@ def test_organization_profile_accepts_expected_fields() -> None:
         region="California",
         evidence=[
             EvidenceEntry(
-                field="website",
+                field="queried_website",
                 value="https://example.com",
                 source="search",
                 reasoning="Selected as likely official website.",
@@ -38,19 +39,22 @@ def test_organization_profile_accepts_expected_fields() -> None:
     )
 
     assert profile.queried_name == "Example Ltd"
+    assert profile.queried_website == "https://example.com"
+    assert profile.queried_country == "CH"
     assert profile.official_company_name == "Example Ltd Official"
     assert profile.purpose == "Develop and distribute software."
     assert profile.address == "Example Street 1"
     assert profile.address_fields == {"address_street": "Example Street"}
     assert profile.legal_address == "Registry Street 10"
-    assert profile.evidence[0].field == "website"
+    assert profile.evidence[0].field == "queried_website"
 
 
 def test_profile_display_fields_match_profile_scalar_fields() -> None:
     assert PROFILE_DISPLAY_FIELDS == (
         "queried_name",
         "official_company_name",
-        "website",
+        "queried_website",
+        "queried_country",
         "registration_id",
         "legal_form",
         "industry",
@@ -90,7 +94,8 @@ def test_profile_display_field_groups_separate_website_and_registry_fields() -> 
     assert website_fields == WEBSITE_PROFILE_DISPLAY_FIELDS
     assert website_fields == (
         "queried_name",
-        "website",
+        "queried_website",
+        "queried_country",
         "legal_form",
         "industry",
         "description",

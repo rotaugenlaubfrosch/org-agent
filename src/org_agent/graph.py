@@ -33,7 +33,7 @@ from org_agent.models import (
     WebsitePage,
 )
 from org_agent.progress import ProgressCallback, report
-from org_agent.registry import query_country_registry
+from org_agent.registry import normalize_country_code, query_country_registry
 from org_agent.settings import Settings
 from org_agent.website import (
     INFORMATION_LINK_SIGNALS,
@@ -92,16 +92,27 @@ def build_graph(
         state.website = str(state.input.website) if state.input.website else None
         if state.website:
             report(progress, "initialize", f"Using provided website: {state.website}")
-        state.profile = OrganizationProfile(queried_name=state.input.name, website=state.website)
+        state.profile = OrganizationProfile(
+            queried_name=state.input.name,
+            queried_website=state.website,
+            queried_country=_queried_country_value(country),
+        )
         return state
 
     async def call_registries(state: AgentState) -> AgentState:
         if not country:
+            state.registry_message = (
+                "Registry lookup was not called because no country registry was selected."
+            )
             report(
                 progress,
                 "call_registries",
                 "Skipped registry lookup because no country registry was selected.",
             )
+            return state
+        if not _registry_credentials_available(country):
+            state.registry_message = _missing_registry_credentials_message(country)
+            report(progress, "call_registries", state.registry_message)
             return state
         state.registry_results = await query_country_registry(
             country,
@@ -123,7 +134,7 @@ def build_graph(
         root_url = normalize_url(state.website)
         state.website = root_url
         if state.profile:
-            state.profile.website = root_url
+            state.profile.queried_website = root_url
         state.pending_urls = [CrawlTarget(url=root_url, depth=0, node_id=0)]
         state.queued_urls = {root_url}
         state.crawl_nodes = [
@@ -204,7 +215,7 @@ def build_graph(
                 llm,
                 page_extraction_parser,
                 state.input.name,
-                state.profile.website,
+                state.profile.queried_website,
                 requested_fields,
                 state.current_page,
                 progress,
@@ -345,7 +356,6 @@ def build_graph(
             )
 
         _validate_profile_email(state.profile, state.website_pages)
-        await _fragment_profile_address(llm, state.profile, country, progress, "validate_profile")
         if email_before in {None, ""}:
             report(progress, "validate_profile", "Skipped email validation: no email extracted.")
         elif not had_website_pages:
@@ -368,14 +378,20 @@ def build_graph(
                         f"Trimmed email whitespace: {email_before} -> {state.profile.email}",
                     )
                 report(progress, "validate_profile", "Validated email: Found in crawled text")
+        await _fragment_profile_address(llm, state.profile, country, progress, "validate_profile")
         return state
 
     async def finalize_profile(state: AgentState) -> AgentState:
         if state.profile is None:
-            state.profile = OrganizationProfile(queried_name=state.input.name, website=state.website)
+            state.profile = OrganizationProfile(
+                queried_name=state.input.name,
+                queried_website=state.website,
+                queried_country=_queried_country_value(country),
+            )
         state.profile.queried_name = state.input.name
-        if state.website and not state.profile.website:
-            state.profile.website = state.website
+        state.profile.queried_country = _queried_country_value(country)
+        if state.website and not state.profile.queried_website:
+            state.profile.queried_website = state.website
         _write_crawl_text_logs(state, settings, progress, "finalize_profile")
         for error in state.errors:
             state.profile.evidence.append(
@@ -423,11 +439,21 @@ async def run_lookup(
         raise RuntimeError("Lookup did not produce an organization profile.")
     registry_profile = _build_registry_profile(
         state.input.name,
+        country,
         state.registry_results,
         progress,
         "finalize_profile",
     )
-    return LookupResult(website_profile=state.profile, registry_profile=registry_profile)
+    registry_message = state.registry_message or _registry_result_message(
+        country,
+        state.registry_results,
+        registry_profile,
+    )
+    return LookupResult(
+        website_profile=state.profile,
+        registry_profile=registry_profile,
+        registry_message=registry_message,
+    )
 
 
 async def _extract_page_info(
@@ -570,6 +596,39 @@ def _load_industries(path: Path) -> list[str]:
             industries.append(industry)
             seen.add(industry)
     return industries
+
+
+def _queried_country_value(country: str | None) -> str:
+    country_code = _country_code(normalize_country_code(country))
+    return country_code.upper() if country_code else "not specified"
+
+
+def _registry_credentials_available(country: str | None) -> bool:
+    normalized_country = normalize_country_code(country)
+    if normalized_country == "ch":
+        from org_agent.countries.ch import registry as ch_registry
+
+        return ch_registry.has_credentials()
+    return True
+
+
+def _missing_registry_credentials_message(country: str | None) -> str:
+    registry_country = _queried_country_value(country)
+    return f"Registry lookup was not called because {registry_country} registry credentials are missing."
+
+
+def _registry_result_message(
+    country: str | None,
+    registry_results: list,
+    registry_profile: OrganizationProfile | None,
+) -> str | None:
+    if registry_profile is not None:
+        return None
+    if not country:
+        return "Registry lookup was not called because no country registry was selected."
+    if any(getattr(result, "status_code", None) == 0 for result in registry_results):
+        return "Registry lookup failed; see registry trace output."
+    return "Registry lookup completed but did not produce registry profile fields."
 
 
 async def _fragment_profile_address(
@@ -1053,6 +1112,7 @@ def _report_registry_result_fields(
 
 def _build_registry_profile(
     queried_name: str,
+    queried_country: str | None,
     registry_results: list,
     progress: ProgressCallback | None = None,
     step: str = "finalize_profile",
@@ -1060,7 +1120,10 @@ def _build_registry_profile(
     if not registry_results:
         return None
 
-    profile = OrganizationProfile(queried_name=queried_name)
+    profile = OrganizationProfile(
+        queried_name=queried_name,
+        queried_country=_queried_country_value(queried_country),
+    )
     for result in registry_results:
         filled_fields = _merge_profile_patch(profile, result.profile_patch)
         _report_filled_fields(progress, step, filled_fields)
@@ -1075,7 +1138,7 @@ def _build_registry_profile(
 def _registry_context_text(state: AgentState) -> str:
     parts: list[str] = []
     if state.profile is not None:
-        for value in (state.profile.website, state.profile.description, state.profile.industry):
+        for value in (state.profile.queried_website, state.profile.description, state.profile.industry):
             if value:
                 parts.append(value)
     parts.extend(page.text for page in state.website_pages)
@@ -1237,7 +1300,7 @@ def _has_minimum_profile(profile: OrganizationProfile | None) -> bool:
     if profile is None:
         return False
     return bool(
-        profile.website
+        profile.queried_website
         and profile.description
         and profile.industry
         and (profile.address or profile.email or profile.phone)

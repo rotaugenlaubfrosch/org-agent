@@ -25,6 +25,9 @@ from org_agent.graph import (
     _parse_crawl_decision_result,
     _parse_industry_selection_result,
     _parse_structured_result,
+    _queried_country_value,
+    _missing_registry_credentials_message,
+    _registry_result_message,
     _should_continue_crawl,
     _truncate_progress_value,
     _validate_profile_email,
@@ -364,7 +367,7 @@ def test_extract_page_info_prompt_excludes_registry_results() -> None:
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
-        website="https://example.com",
+        queried_website="https://example.com",
         industry="Software",
         address="Example Street 1",
     )
@@ -467,7 +470,7 @@ def test_fill_registry_only_field_messages_skips_when_registry_results_exist() -
 def test_merge_profile_patch_returns_only_newly_filled_fields() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
-        website="https://example.com",
+        queried_website="https://example.com",
         email="old@example.com",
     )
     patch = OrganizationProfilePatch(
@@ -485,7 +488,7 @@ def test_merge_profile_patch_returns_only_newly_filled_fields() -> None:
 def test_merge_profile_patch_missing_only_does_not_overwrite_website_fields() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
-        website="https://example.com",
+        queried_website="https://example.com",
         address="Website Street 1",
         phone="+1 555 0100",
         email="info@example.com",
@@ -547,10 +550,11 @@ def test_build_registry_profile_keeps_registry_fields_separate() -> None:
         ],
     )
 
-    profile = _build_registry_profile("Example Ltd", [registry_result])
+    profile = _build_registry_profile("Example Ltd", "ch", [registry_result])
 
     assert profile is not None
     assert profile.queried_name == "Example Ltd"
+    assert profile.queried_country == "CH"
     assert profile.official_company_name == "Example Ltd Official"
     assert profile.country == "Switzerland"
     assert profile.phone == "+1 555 9999"
@@ -568,7 +572,69 @@ def test_build_registry_profile_returns_none_without_registry_values() -> None:
         content="Registry query failed.",
     )
 
-    assert _build_registry_profile("Example Ltd", [registry_result]) is None
+    assert _build_registry_profile("Example Ltd", None, [registry_result]) is None
+
+
+def test_queried_country_value_uses_uppercase_code_or_not_specified() -> None:
+    assert _queried_country_value("ch") == "CH"
+    assert _queried_country_value(" CH ") == "CH"
+    assert _queried_country_value("CHE") == "CH"
+    assert _queried_country_value("Switzerland") == "CH"
+    assert _queried_country_value(None) == "not specified"
+    assert _queried_country_value(" ") == "not specified"
+
+
+def test_registry_result_message_explains_no_country_skip() -> None:
+    assert (
+        _registry_result_message(None, [], None)
+        == "Registry lookup was not called because no country registry was selected."
+    )
+
+
+def test_missing_registry_credentials_message_uses_uppercase_country_code() -> None:
+    assert (
+        _missing_registry_credentials_message("ch")
+        == "Registry lookup was not called because CH registry credentials are missing."
+    )
+
+
+def test_registry_result_message_explains_no_profile_fields() -> None:
+    registry_result = RegistryResult(
+        registry="ch",
+        url="https://registry.example/detail",
+        status_code=200,
+        content="{}",
+    )
+
+    assert (
+        _registry_result_message("ch", [registry_result], None)
+        == "Registry lookup completed but did not produce registry profile fields."
+    )
+
+
+def test_registry_result_message_explains_registry_failure() -> None:
+    registry_result = RegistryResult(
+        registry="ch",
+        url="https://registry.example/detail",
+        status_code=0,
+        content="Registry query failed.",
+    )
+
+    assert (
+        _registry_result_message("ch", [registry_result], None)
+        == "Registry lookup failed; see registry trace output."
+    )
+
+
+def test_registry_result_message_is_empty_when_profile_exists() -> None:
+    assert (
+        _registry_result_message(
+            "ch",
+            [],
+            OrganizationProfile(queried_name="Example Ltd", queried_country="CH"),
+        )
+        is None
+    )
 
 
 def test_normalize_country_resolves_iso_codes_and_names() -> None:
@@ -654,7 +720,7 @@ def test_should_continue_crawl_visits_newly_queued_selected_link() -> None:
         input=LookupInput(name="Example Ltd", website="https://example.com"),
         profile=OrganizationProfile(
             queried_name="Example Ltd",
-            website="https://example.com",
+            queried_website="https://example.com",
             description="Example Ltd does things.",
             industry="Food",
             phone="+1 555 0100",

@@ -118,6 +118,10 @@ def _print_lookup_result(result: LookupResult) -> None:
     _print_profile_table("Website Profile", result.website_profile, website_fields)
     if result.registry_profile is not None:
         _print_profile_table("Registry Profile", result.registry_profile, registry_fields)
+    else:
+        _print_registry_status_table(
+            result.registry_message or "Registry lookup did not produce a registry profile."
+        )
 
     _print_evidence_panel("Website Evidence", result.website_profile)
     if result.registry_profile is not None:
@@ -136,6 +140,14 @@ def _print_profile_table(title: str, profile: OrganizationProfile, fields: tuple
             for address_field, address_value in profile.address_fields.items():
                 table.add_row(f"  {address_field}", address_value)
 
+    console.print(table)
+
+
+def _print_registry_status_table(message: str) -> None:
+    table = Table(title="Registry Profile", show_header=True, header_style="bold")
+    table.add_column("Field", style="cyan", no_wrap=True)
+    table.add_column("Value")
+    table.add_row("status", message)
     console.print(table)
 
 
