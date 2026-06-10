@@ -27,7 +27,7 @@ def test_lookup_normalizes_bare_domain(monkeypatch: pytest.MonkeyPatch) -> None:
         return api.LookupResult(
             website_profile=api.OrganizationProfile(
                 queried_name=lookup_input.name,
-                website=str(lookup_input.website),
+                queried_website=str(lookup_input.website),
             )
         )
 
@@ -52,7 +52,7 @@ def test_lookup_passes_normalized_country(monkeypatch: pytest.MonkeyPatch) -> No
         return api.LookupResult(
             website_profile=api.OrganizationProfile(
                 queried_name=lookup_input.name,
-                website=str(lookup_input.website),
+                queried_website=str(lookup_input.website),
             )
         )
 

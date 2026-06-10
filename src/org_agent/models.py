@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field, HttpUrl
 PROFILE_DISPLAY_FIELDS = (
     "queried_name",
     "official_company_name",
-    "website",
+    "queried_website",
+    "queried_country",
     "registration_id",
     "legal_form",
     "industry",
@@ -30,7 +31,8 @@ REGISTRY_ONLY_PROFILE_FIELDS = (
 
 WEBSITE_PROFILE_DISPLAY_FIELDS = (
     "queried_name",
-    "website",
+    "queried_website",
+    "queried_country",
     "legal_form",
     "industry",
     "description",
@@ -65,7 +67,8 @@ class EvidenceEntry(BaseModel):
 class OrganizationProfile(BaseModel):
     queried_name: str
     official_company_name: str | None = None
-    website: str | None = None
+    queried_website: str | None = None
+    queried_country: str = "not specified"
     registration_id: str | None = None
     legal_form: str | None = None
     industry: str | None = None
@@ -87,11 +90,11 @@ class OrganizationProfile(BaseModel):
 class LookupResult(BaseModel):
     website_profile: OrganizationProfile
     registry_profile: OrganizationProfile | None = None
+    registry_message: str | None = None
 
 
 class OrganizationProfilePatch(BaseModel):
     official_company_name: str | None = None
-    website: str | None = None
     registration_id: str | None = None
     legal_form: str | None = None
     industry: str | None = None
@@ -217,6 +220,7 @@ class AgentState(BaseModel):
     website: str | None = None
     search_results: list[SearchResult] = Field(default_factory=list)
     registry_results: list[RegistryResult] = Field(default_factory=list)
+    registry_message: str | None = None
     website_pages: list[WebsitePage] = Field(default_factory=list)
     current_page: WebsitePage | None = None
     current_crawl_node_id: int | None = None
