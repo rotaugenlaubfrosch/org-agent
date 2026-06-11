@@ -37,6 +37,7 @@ from org_agent.graph import (
     _registry_result_message,
     _select_multiple_candidates,
     _select_single_candidate,
+    _should_continue_after_skipped_page,
     _should_continue_crawl,
     _truncate_progress_value,
     _validate_profile_email,
@@ -64,6 +65,7 @@ from org_agent.models import (
 
 class _CrawlSettings:
     crawl_max_pages = 6
+    crawl_max_depth = 2
 
 
 class _CapturingStructuredLLM:
@@ -616,8 +618,7 @@ def test_extract_page_info_prompt_includes_employees_guidance() -> None:
     prompt = llm.messages[-1].content
 
     assert "For employees" in prompt
-    assert "Rounded estimates are allowed" in prompt
-    assert "around 100 employees' -> 100" in prompt
+    assert "estimate the number of employees as an integer" in prompt
 
 
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
@@ -1002,6 +1003,77 @@ def test_should_continue_crawl_visits_newly_queued_selected_link() -> None:
 
     assert _should_continue_crawl(state, _CrawlSettings()) is False
     assert _should_continue_crawl(state, _CrawlSettings(), queued_selected_link=True) is True
+
+
+def test_should_continue_crawl_reports_control_state_without_internal_flag() -> None:
+    messages: list[tuple[str, str]] = []
+    state = AgentState(
+        input=LookupInput(name="Example Ltd", website="https://example.com"),
+        profile=OrganizationProfile(queried_name="Example Ltd", queried_website="https://example.com"),
+        website_pages=[WebsitePage(url="https://example.com", text="Page text.")],
+        pending_urls=[CrawlTarget(url="https://example.com/facts", depth=1, node_id=1)],
+    )
+
+    should_continue = _should_continue_crawl(
+        state,
+        _CrawlSettings(),
+        queued_selected_link=True,
+        progress=lambda scope, message: messages.append((scope, message)),
+        scope="analyze_page",
+    )
+
+    rendered = "\n".join(message for _, message in messages)
+    assert should_continue is True
+    assert "depth=0/2" in rendered
+    assert "links_in_queue=1" in rendered
+    assert "minimum_profile=false" in rendered
+    assert "queued_selected_link" not in rendered
+    assert "Continuing crawl: selected links were added to the queue." in rendered
+
+
+def test_should_continue_after_skipped_page_continues_when_links_remain() -> None:
+    messages: list[tuple[str, str]] = []
+    state = AgentState(
+        input=LookupInput(name="Example Ltd", website="https://example.com"),
+        profile=OrganizationProfile(queried_name="Example Ltd", queried_website="https://example.com"),
+        website_pages=[WebsitePage(url="https://example.com", text="Page text.")],
+        pending_urls=[CrawlTarget(url="https://example.com/impressum", depth=1, node_id=2)],
+    )
+
+    should_continue = _should_continue_after_skipped_page(
+        state,
+        _CrawlSettings(),
+        progress=lambda scope, message: messages.append((scope, message)),
+        scope="crawl_page",
+    )
+
+    rendered = "\n".join(message for _, message in messages)
+    assert should_continue is True
+    assert "depth=0/2" in rendered
+    assert "links_in_queue=1" in rendered
+    assert "Continuing crawl: skipped page, links remain in queue." in rendered
+
+
+def test_should_continue_after_skipped_page_stops_without_links() -> None:
+    messages: list[tuple[str, str]] = []
+    state = AgentState(
+        input=LookupInput(name="Example Ltd", website="https://example.com"),
+        profile=OrganizationProfile(queried_name="Example Ltd", queried_website="https://example.com"),
+        website_pages=[WebsitePage(url="https://example.com", text="Page text.")],
+    )
+
+    should_continue = _should_continue_after_skipped_page(
+        state,
+        _CrawlSettings(),
+        progress=lambda scope, message: messages.append((scope, message)),
+        scope="crawl_page",
+    )
+
+    rendered = "\n".join(message for _, message in messages)
+    assert should_continue is False
+    assert "depth=0/2" in rendered
+    assert "links_in_queue=0" in rendered
+    assert "Stopping crawl: no links in queue." in rendered
 
 
 def test_has_minimum_profile_requires_employees() -> None:

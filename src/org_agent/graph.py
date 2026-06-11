@@ -162,6 +162,12 @@ def build_graph(
         if normalized_url in state.visited_urls:
             node.status = "skipped"
             node.reason = "already visited"
+            state.should_continue_crawl = _should_continue_after_skipped_page(
+                state,
+                settings,
+                progress,
+                "crawl_page",
+            )
             return state
 
         page, links, error = await fetch_page_with_playwright(
@@ -174,6 +180,12 @@ def build_graph(
         if error or page is None:
             node.status = "skipped"
             node.reason = error or "page could not be loaded"
+            state.should_continue_crawl = _should_continue_after_skipped_page(
+                state,
+                settings,
+                progress,
+                "crawl_page",
+            )
             return state
 
         final_url = without_fragment(page.url)
@@ -181,6 +193,12 @@ def build_graph(
         if final_url in state.visited_urls:
             node.status = "skipped"
             node.reason = f"redirected to already captured {final_url}"
+            state.should_continue_crawl = _should_continue_after_skipped_page(
+                state,
+                settings,
+                progress,
+                "crawl_page",
+            )
             return state
 
         state.visited_urls.add(final_url)
@@ -539,6 +557,9 @@ async def _extract_page_info(
             "Rounded estimates are allowed when the page states an approximate employee count, "
             "for example 'around 100 employees' -> 100. Use null if no employee count is stated. "
             "Do not infer employees from sector, industry, revenue, office count, or vague size labels. "
+        )
+        employees_guidance = (
+            "For employees, extract the number of employees as an integer. If it is not available, estimate the number of employees as an integer. "
         )
     prompt = (
         "You are extracting factual information about an organization from a website page.\n"
@@ -1613,7 +1634,7 @@ def _should_continue_crawl(
         scope,
         "Crawl control: "
         f"pages={len(state.website_pages)}/{settings.crawl_max_pages}, "
-        f"max_depth={settings.crawl_max_depth}, "
+        f"depth={state.current_crawl_depth}/{settings.crawl_max_depth}, "
         f"links_in_queue={links_in_queue}, "
         f"minimum_profile={str(has_minimum_profile).lower()}",
     )
@@ -1630,6 +1651,33 @@ def _should_continue_crawl(
         report(progress, scope, "Stopping crawl: LLM marked crawl complete and minimum profile is present.")
         return False
     report(progress, scope, "Continuing crawl: links remain in queue.")
+    return True
+
+
+def _should_continue_after_skipped_page(
+    state: AgentState,
+    settings: Settings,
+    progress: ProgressCallback | None = None,
+    scope: str = "crawl_page",
+) -> bool:
+    links_in_queue = len(state.pending_urls)
+    has_minimum_profile = _has_minimum_profile(state.profile)
+    report(
+        progress,
+        scope,
+        "Crawl control: "
+        f"pages={len(state.website_pages)}/{settings.crawl_max_pages}, "
+        f"depth={state.current_crawl_depth}/{settings.crawl_max_depth}, "
+        f"links_in_queue={links_in_queue}, "
+        f"minimum_profile={str(has_minimum_profile).lower()}",
+    )
+    if len(state.website_pages) >= settings.crawl_max_pages:
+        report(progress, scope, "Stopping crawl: crawl_max_pages reached.")
+        return False
+    if not state.pending_urls:
+        report(progress, scope, "Stopping crawl: no links in queue.")
+        return False
+    report(progress, scope, "Continuing crawl: skipped page, links remain in queue.")
     return True
 
 
