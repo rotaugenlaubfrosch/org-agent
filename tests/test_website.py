@@ -35,6 +35,21 @@ def test_filter_candidate_links_removes_shop_and_keeps_info_links() -> None:
             text="UNTERNEHMEN",
             area="navigation",
         ),
+        WebsiteLink(
+            url="https://www.zweifel.ch/ch_de/team/",
+            text="Our people",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://www.zweifel.ch/ch_de/facts/",
+            text="Numbers",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://www.zweifel.ch/ch_de/portrait/",
+            text="Profile",
+            area="navigation",
+        ),
     ]
 
     candidates = filter_candidate_links(
@@ -51,6 +66,9 @@ def test_filter_candidate_links_removes_shop_and_keeps_info_links() -> None:
     assert "https://www.zweifel.ch/ch_de/impressum/" in candidate_urls
     assert "https://www.zweifel.ch/ch_de/datenschutzerklaerung/" in candidate_urls
     assert "https://www.zweifel.ch/ch_de/unternehmen/" in candidate_urls
+    assert "https://www.zweifel.ch/ch_de/team/" in candidate_urls
+    assert "https://www.zweifel.ch/ch_de/facts/" in candidate_urls
+    assert "https://www.zweifel.ch/ch_de/portrait/" in candidate_urls
 
 
 def test_filter_candidate_links_orders_text_keyword_matches_first() -> None:

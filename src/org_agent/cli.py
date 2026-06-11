@@ -136,6 +136,8 @@ def _print_profile_table(title: str, profile: OrganizationProfile, fields: tuple
     for field in fields:
         value = getattr(profile, field)
         table.add_row(field, "" if value is None else str(value))
+        if field == "queried_country":
+            table.add_section()
         if field == "address":
             for address_field, address_value in profile.address_fields.items():
                 table.add_row(f"  {address_field}", address_value)

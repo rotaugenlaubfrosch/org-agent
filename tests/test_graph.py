@@ -3,20 +3,25 @@ import asyncio
 from langchain_core.output_parsers import PydanticOutputParser
 
 from org_agent.graph import (
+    LLM_LIST_SELECTION_MISMATCH,
     NO_REGISTRY_LEGAL_ADDRESS_MESSAGE,
     NO_REGISTRY_OFFICIAL_COMPANY_NAME_MESSAGE,
     NO_REGISTRY_PURPOSE_MESSAGE,
     NO_REGISTRY_REGION_MESSAGE,
     NO_REGISTRY_REGISTRATION_ID_MESSAGE,
-    _parse_company_type_selection_result,
     _fill_registry_only_field_messages,
+    _extract_company_type,
+    _extract_industries,
+    _extract_legal_structure,
     _extract_page_info,
+    _extract_sector,
     _keep_requested_extraction_fields,
     _load_industries,
     _missing_crawl_fields,
     _build_registry_profile,
     _address_fields_config_path,
     _fragment_profile_address,
+    _has_minimum_profile,
     _load_address_fields_config,
     _merge_profile_patch,
     _merge_profile_patch_missing_only,
@@ -24,13 +29,14 @@ from org_agent.graph import (
     _normalize_country,
     _normalize_profile_country,
     _parse_crawl_decision_result,
-    _parse_industry_selection_result,
-    _parse_legal_structure_selection_result,
-    _parse_sector_selection_result,
+    _parse_multiple_candidate_response,
+    _parse_single_candidate_response,
     _parse_structured_result,
     _queried_country_value,
     _missing_registry_credentials_message,
     _registry_result_message,
+    _select_multiple_candidates,
+    _select_single_candidate,
     _should_continue_crawl,
     _truncate_progress_value,
     _validate_profile_email,
@@ -42,19 +48,15 @@ from org_agent.graph import (
 )
 from org_agent.models import (
     AgentState,
-    CompanyTypeSelection,
     CrawlDecision,
     CrawlTarget,
     EvidenceEntry,
-    IndustrySelection,
-    LegalStructureSelection,
     LookupInput,
     OrganizationProfile,
     OrganizationProfilePatch,
     PageAnalysis,
     PageExtraction,
     RegistryResult,
-    SectorSelection,
     WebsiteOrganizationProfilePatch,
     WebsitePage,
 )
@@ -89,6 +91,22 @@ class _AddressFragmentationLLM:
                 self.content = content
 
         return _Response(self.content)
+
+
+class _SequentialTextLLM:
+    def __init__(self, *contents: str) -> None:
+        self.contents = list(contents)
+        self.messages = []
+
+    async def ainvoke(self, messages):
+        self.messages.append(messages)
+        content = self.contents.pop(0)
+
+        class _Response:
+            def __init__(self, content: str) -> None:
+                self.content = content
+
+        return _Response(content)
 
 
 def test_load_industries_reads_comma_separated_file(tmp_path) -> None:
@@ -318,76 +336,192 @@ def test_fragment_profile_address_reports_no_config_skip() -> None:
     assert profile.address_fields == {}
 
 
-def test_parse_industry_selection_accepts_schema_like_properties_wrapper() -> None:
-    parser = PydanticOutputParser(pydantic_object=IndustrySelection)
+def test_parse_single_candidate_response_accepts_exact_value_or_none() -> None:
+    candidates = ["Company Limited by Shares (AG / SA)", "Limited Liability Company (GmbH / Sàrl)"]
 
-    selection = _parse_industry_selection_result(
-        {
-            "properties": {
-                "industries": ["Food Processing", "Consumer Goods"],
-                "reasoning": "Selected based on snacks production.",
-            },
-            "required": ["reasoning"],
-        },
-        parser,
+    assert (
+        _parse_single_candidate_response("Company Limited by Shares (AG / SA)", candidates)
+        == "Company Limited by Shares (AG / SA)"
+    )
+    assert _parse_single_candidate_response("NONE", candidates) is None
+    assert _parse_single_candidate_response('{"legal_structure": "AG"}', candidates) == (
+        LLM_LIST_SELECTION_MISMATCH
     )
 
-    assert selection.industries == ["Food Processing", "Consumer Goods"]
-    assert selection.reasoning == "Selected based on snacks production."
 
+def test_parse_multiple_candidate_response_accepts_exact_lines_or_none() -> None:
+    candidates = ["Food Processing", "Consumer Goods"]
 
-def test_parse_sector_selection_accepts_schema_like_properties_wrapper() -> None:
-    parser = PydanticOutputParser(pydantic_object=SectorSelection)
-
-    selection = _parse_sector_selection_result(
-        {
-            "properties": {
-                "sector": "Manufacturer (secondary)",
-                "reasoning": "Selected based on production activity.",
-            },
-            "required": ["reasoning"],
-        },
-        parser,
+    assert _parse_multiple_candidate_response(
+        "Food Processing\nConsumer Goods",
+        candidates,
+        2,
+    ) == ["Food Processing", "Consumer Goods"]
+    assert _parse_multiple_candidate_response("NONE", candidates, 2) == []
+    assert _parse_multiple_candidate_response("Food Processing\nInvented", candidates, 2) == (
+        LLM_LIST_SELECTION_MISMATCH
     )
 
-    assert selection.sector == "Manufacturer (secondary)"
-    assert selection.reasoning == "Selected based on production activity."
 
+def test_select_single_candidate_retries_same_prompt_and_reports_mismatch() -> None:
+    llm = _SequentialTextLLM(
+        '{"candidate_legal_structures": ["Company Limited by Shares (AG / SA)"]}',
+        "Company Limited by Shares (AG / SA)",
+    )
+    reports = []
 
-def test_parse_company_type_selection_accepts_schema_like_properties_wrapper() -> None:
-    parser = PydanticOutputParser(pydantic_object=CompanyTypeSelection)
-
-    selection = _parse_company_type_selection_result(
-        {
-            "properties": {
-                "company_type": "Academic Institution",
-                "reasoning": "Selected based on university context.",
-            },
-            "required": ["reasoning"],
-        },
-        parser,
+    selected = asyncio.run(
+        _select_single_candidate(
+            llm,
+            "Prompt text",
+            ["Company Limited by Shares (AG / SA)"],
+            "legal_structure",
+            lambda step, message: reports.append((step, message)),
+            "analyze_page",
+        )
     )
 
-    assert selection.company_type == "Academic Institution"
-    assert selection.reasoning == "Selected based on university context."
+    assert selected == "Company Limited by Shares (AG / SA)"
+    assert len(llm.messages) == 2
+    assert llm.messages[0][-1].content == llm.messages[1][-1].content == "Prompt text"
+    assert reports == [
+        (
+            "analyze_page",
+            "LLM legal_structure response did not match list elements; retrying once. "
+            "Response: {\"candidate_legal_structures\": [\"Company Limited by Shares (AG / SA)\"]}",
+        )
+    ]
 
 
-def test_parse_legal_structure_selection_accepts_schema_like_properties_wrapper() -> None:
-    parser = PydanticOutputParser(pydantic_object=LegalStructureSelection)
+def test_select_multiple_candidates_returns_message_after_retry_failure() -> None:
+    llm = _SequentialTextLLM("Invented", "Still invented")
+    reports = []
 
-    selection = _parse_legal_structure_selection_result(
-        {
-            "properties": {
-                "legal_structure": "Limited Liability Company (GmbH / Sàrl)",
-                "reasoning": "Selected based on GmbH mention.",
-            },
-            "required": ["reasoning"],
-        },
-        parser,
+    selected = asyncio.run(
+        _select_multiple_candidates(
+            llm,
+            "Prompt text",
+            ["Food Processing", "Consumer Goods"],
+            2,
+            "industry",
+            lambda step, message: reports.append((step, message)),
+            "analyze_page",
+        )
     )
 
-    assert selection.legal_structure == "Limited Liability Company (GmbH / Sàrl)"
-    assert selection.reasoning == "Selected based on GmbH mention."
+    assert selected == [LLM_LIST_SELECTION_MISMATCH]
+    assert len(llm.messages) == 2
+    assert reports[-1] == (
+        "analyze_page",
+        "LLM industry response did not match list elements. Response: Still invented",
+    )
+
+
+def test_extract_company_type_prompt_excludes_organization_description(tmp_path) -> None:
+    company_types_path = tmp_path / "company_types.csv"
+    company_types_path.write_text("Commercial Enterprise,Academic Institution", encoding="utf-8")
+    llm = _SequentialTextLLM("Commercial Enterprise")
+
+    selected = asyncio.run(
+        _extract_company_type(
+            llm,
+            "This description should not be included.",
+            "Current page text with company context.",
+            str(company_types_path),
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[0][-1].content
+    assert selected == "Commercial Enterprise"
+    assert "Organization description:" not in prompt
+    assert "This description should not be included." not in prompt
+    assert "Current page text:" in prompt
+    assert "Allowed answers:" in prompt
+    assert prompt.index("Allowed answers:") < prompt.index("Current page text:")
+    assert "If the organization sells products or services commercially" in prompt
+    assert "Do not return any sentence from the page." in prompt
+    assert "If none fits the organization description" not in prompt
+
+
+def test_extract_legal_structure_prompt_uses_allowed_answers_before_page_text(tmp_path) -> None:
+    legal_structures_path = tmp_path / "legal_structures.csv"
+    legal_structures_path.write_text(
+        "Company Limited by Shares (AG / SA),Limited Liability Company (GmbH / Sàrl)",
+        encoding="utf-8",
+    )
+    llm = _SequentialTextLLM("Company Limited by Shares (AG / SA)")
+
+    selected = asyncio.run(
+        _extract_legal_structure(
+            llm,
+            "Zweifel Chips & Snacks AG page text.",
+            str(legal_structures_path),
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[0][-1].content
+    assert selected == "Company Limited by Shares (AG / SA)"
+    assert "Classify the organization into exactly one legal structure." in prompt
+    assert prompt.index("Allowed answers:") < prompt.index("Current page text:")
+    assert "AG or SA" in prompt
+    assert "Do not return any sentence from the page." in prompt
+    assert "Do not return JSON." in prompt
+
+
+def test_extract_sector_prompt_uses_allowed_answers_before_context(tmp_path) -> None:
+    sectors_path = tmp_path / "sectors.csv"
+    sectors_path.write_text("Producer (primary),Manufacturer (secondary)", encoding="utf-8")
+    llm = _SequentialTextLLM("Manufacturer (secondary)")
+
+    selected = asyncio.run(
+        _extract_sector(
+            llm,
+            "The organization makes snacks.",
+            "Page text about production.",
+            str(sectors_path),
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[0][-1].content
+    assert selected == "Manufacturer (secondary)"
+    assert "Classify the organization into exactly one economic sector." in prompt
+    assert prompt.index("Allowed answers:") < prompt.index("Organization description:")
+    assert prompt.index("Allowed answers:") < prompt.index("Current page text:")
+    assert "Base the choice on what the organization does." in prompt
+    assert "Do not return any sentence from the page." in prompt
+    assert "If none fits the organization description" not in prompt
+
+
+def test_extract_industries_prompt_uses_allowed_answers_before_description(tmp_path) -> None:
+    industries_path = tmp_path / "industries.csv"
+    industries_path.write_text("Food Processing,Consumer Goods", encoding="utf-8")
+    llm = _SequentialTextLLM("Food Processing")
+
+    selected = asyncio.run(
+        _extract_industries(
+            llm,
+            "The organization makes snacks.",
+            str(industries_path),
+            2,
+            25,
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[0][-1].content
+    assert selected == ["Food Processing"]
+    assert "Classify the organization into at most 2 industries." in prompt
+    assert prompt.index("Allowed answers:") < prompt.index("Organization description:")
+    assert "Return one allowed answer per line." in prompt
+    assert "Do not quote text from the page or description." in prompt
+    assert "Do not return JSON." in prompt
 
 
 def test_parse_crawl_decision_accepts_schema_like_properties_wrapper() -> None:
@@ -458,9 +592,11 @@ def test_extract_page_info_prompt_excludes_registry_results() -> None:
 
     assert "Current page:" in prompt
     assert "Registry results:" not in prompt
+    assert "Do not summarize the page." in prompt
+    assert "No requested profile fields found." in prompt
 
 
-def test_extract_page_info_prompt_includes_company_size_guidance() -> None:
+def test_extract_page_info_prompt_includes_employees_guidance() -> None:
     llm = _CapturingStructuredLLM()
     parser = PydanticOutputParser(pydantic_object=PageExtraction)
 
@@ -470,7 +606,7 @@ def test_extract_page_info_prompt_includes_company_size_guidance() -> None:
             parser,
             "Example Ltd",
             "https://example.com",
-            ["company_size"],
+            ["employees"],
             WebsitePage(url="https://example.com", text="About page text."),
             None,
             "analyze_page",
@@ -479,7 +615,7 @@ def test_extract_page_info_prompt_includes_company_size_guidance() -> None:
 
     prompt = llm.messages[-1].content
 
-    assert "For company_size" in prompt
+    assert "For employees" in prompt
     assert "Rounded estimates are allowed" in prompt
     assert "around 100 employees' -> 100" in prompt
 
@@ -491,7 +627,7 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
         industry="Software",
         sector="Knowledge & Information (quaternary)",
         company_type="Commercial Enterprise",
-        company_size=42,
+        employees=42,
         address="Example Street 1",
     )
 
@@ -522,7 +658,7 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
     assert "legal_structure" not in patch_properties
     assert "sector" not in patch_properties
     assert "company_type" not in patch_properties
-    assert "company_size" in patch_properties
+    assert "employees" in patch_properties
     assert "legal_address" not in str(schema)
     assert "official_company_name" not in str(schema)
     assert "queried_name" not in str(schema)
@@ -852,7 +988,7 @@ def test_should_continue_crawl_visits_newly_queued_selected_link() -> None:
             industry="Food",
             sector="Manufacturer (secondary)",
             company_type="Commercial Enterprise",
-            company_size=42,
+            employees=42,
             phone="+1 555 0100",
             evidence=[EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found.")],
         ),
@@ -866,6 +1002,26 @@ def test_should_continue_crawl_visits_newly_queued_selected_link() -> None:
 
     assert _should_continue_crawl(state, _CrawlSettings()) is False
     assert _should_continue_crawl(state, _CrawlSettings(), queued_selected_link=True) is True
+
+
+def test_has_minimum_profile_requires_employees() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        queried_website="https://example.com",
+        legal_structure="Limited Liability Company (GmbH / Sàrl)",
+        description="Example Ltd does things.",
+        industry="Food",
+        sector="Manufacturer (secondary)",
+        company_type="Commercial Enterprise",
+        phone="+1 555 0100",
+        evidence=[EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found.")],
+    )
+
+    assert _has_minimum_profile(profile) is False
+
+    profile.employees = 42
+
+    assert _has_minimum_profile(profile) is True
 
 
 def test_truncate_progress_value_appends_ellipsis_at_limit() -> None:

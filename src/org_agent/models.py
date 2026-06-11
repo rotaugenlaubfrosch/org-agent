@@ -14,7 +14,7 @@ PROFILE_DISPLAY_FIELDS = (
     "description",
     "sector",
     "company_type",
-    "company_size",
+    "employees",
     "purpose",
     "address",
     "legal_address",
@@ -41,7 +41,7 @@ WEBSITE_PROFILE_DISPLAY_FIELDS = (
     "description",
     "sector",
     "company_type",
-    "company_size",
+    "employees",
     "address",
     "phone",
     "email",
@@ -84,7 +84,7 @@ class OrganizationProfile(BaseModel):
     )
     sector: str | None = None
     company_type: str | None = None
-    company_size: int | None = None
+    employees: int | None = None
     purpose: str | None = None
     address: str | None = None
     address_fields: dict[str, str] = Field(default_factory=dict)
@@ -110,7 +110,7 @@ class OrganizationProfilePatch(BaseModel):
     description: str | None = None
     sector: str | None = None
     company_type: str | None = None
-    company_size: int | None = None
+    employees: int | None = None
     purpose: str | None = None
     address: str | None = None
     legal_address: str | None = None
@@ -125,7 +125,7 @@ class WebsiteOrganizationProfilePatch(BaseModel):
     phone: str | None = None
     email: str | None = None
     country: str | None = None
-    company_size: int | None = None
+    employees: int | None = None
 
 
 class LookupInput(BaseModel):

@@ -18,20 +18,16 @@ from pydantic import BaseModel, ValidationError
 from org_agent.llm import build_chat_model
 from org_agent.models import (
     AgentState,
-    CompanyTypeSelection,
     CrawlDecision,
     CrawlNode,
     CrawlTarget,
     EvidenceEntry,
-    IndustrySelection,
-    LegalStructureSelection,
     LookupResult,
     LookupInput,
     OrganizationProfile,
     OrganizationProfilePatch,
     PageAnalysis,
     PageExtraction,
-    SectorSelection,
     WebsiteLink,
     WebsitePage,
 )
@@ -55,7 +51,7 @@ EXTRACTABLE_PROFILE_FIELDS = (
     "phone",
     "email",
     "country",
-    "company_size",
+    "employees",
 )
 
 DESCRIPTION_PROFILE_FIELD = "description"
@@ -65,6 +61,7 @@ COMPANY_TYPE_PROFILE_FIELD = "company_type"
 INDUSTRY_PROFILE_FIELD = "industry"
 LINK_SELECTION_MAX_CANDIDATES = 25
 ADDRESS_FIELD_PREFIX = "address_"
+LLM_LIST_SELECTION_MISMATCH = "LLM response did not match list elements."
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
@@ -91,10 +88,6 @@ def build_graph(
     llm = build_chat_model(settings)
     page_extraction_parser = PydanticOutputParser(pydantic_object=PageExtraction)
     crawl_decision_parser = PydanticOutputParser(pydantic_object=CrawlDecision)
-    legal_structure_selection_parser = PydanticOutputParser(pydantic_object=LegalStructureSelection)
-    industry_selection_parser = PydanticOutputParser(pydantic_object=IndustrySelection)
-    sector_selection_parser = PydanticOutputParser(pydantic_object=SectorSelection)
-    company_type_selection_parser = PydanticOutputParser(pydantic_object=CompanyTypeSelection)
 
     async def initialize(state: AgentState) -> AgentState:
         report(progress, "initialize", f"Looking up: {state.input.name}")
@@ -264,7 +257,6 @@ def build_graph(
         if state.profile.legal_structure in {None, ""}:
             legal_structure = await _extract_legal_structure(
                 llm,
-                legal_structure_selection_parser,
                 state.current_page.text,
                 settings.legal_structures_csv,
                 progress,
@@ -285,7 +277,6 @@ def build_graph(
         if state.profile.sector in {None, ""}:
             sector = await _extract_sector(
                 llm,
-                sector_selection_parser,
                 state.profile.description or "",
                 state.current_page.text,
                 settings.sectors_csv,
@@ -307,7 +298,6 @@ def build_graph(
         if state.profile.company_type in {None, ""}:
             company_type = await _extract_company_type(
                 llm,
-                company_type_selection_parser,
                 state.profile.description or "",
                 state.current_page.text,
                 settings.company_types_csv,
@@ -329,7 +319,6 @@ def build_graph(
         if state.profile.industry in {None, ""}:
             industries = await _extract_industries(
                 llm,
-                industry_selection_parser,
                 state.profile.description or "",
                 settings.industries_csv,
                 settings.max_industries,
@@ -408,6 +397,8 @@ def build_graph(
             state,
             settings,
             queued_selected_link=queued_selected_link,
+            progress=progress,
+            scope="analyze_page",
         )
         return state
 
@@ -541,13 +532,13 @@ async def _extract_page_info(
     scope: str,
 ) -> PageExtraction:
     formatted_fields = "\n".join(f"- {field}" for field in requested_fields)
-    company_size_guidance = ""
-    if "company_size" in requested_fields:
-        company_size_guidance = (
-            "For company_size, extract the number of employees as an integer. "
+    employees_guidance = ""
+    if "employees" in requested_fields:
+        employees_guidance = (
+            "For employees, extract the number of employees as an integer. "
             "Rounded estimates are allowed when the page states an approximate employee count, "
             "for example 'around 100 employees' -> 100. Use null if no employee count is stated. "
-            "Do not infer company_size from sector, industry, revenue, office count, or vague size labels. "
+            "Do not infer employees from sector, industry, revenue, office count, or vague size labels. "
         )
     prompt = (
         "You are extracting factual information about an organization from a website page.\n"
@@ -555,9 +546,12 @@ async def _extract_page_info(
         f"{formatted_fields}\n"
         "Do not extract, mention, or fill any fields that are not listed above. "
         "Use null for listed fields that are not present on the current page.\n"
-        f"{company_size_guidance}"
+        f"{employees_guidance}"
         "Write brief evidence entries for each extracted value. "
-        "Write a one-sentence factual explanation as reasoning.\n"
+        "Do not summarize the page. "
+        "If no requested fields are present, set reasoning to exactly: "
+        "No requested profile fields found. "
+        "Otherwise, write a one-sentence factual explanation as reasoning.\n"
         f"{parser.get_format_instructions()}\n\n"
         f"Organization name: {organization_name}\n\n"
         f"Known website: {website or 'unknown'}\n\n"
@@ -598,7 +592,6 @@ async def _extract_description(
 
 async def _extract_industries(
     llm: BaseChatModel,
-    parser: PydanticOutputParser,
     description: str,
     industries_csv: str,
     max_industries: int,
@@ -635,41 +628,35 @@ async def _extract_industries(
         )
 
     prompt = (
-        f"Choose at most {max_count} industries from the candidate list. The industries need to match the organization, so can choose fewer industries if required."
-        "Only choose industries that fit the organization description. "
-        "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n\n"
-        f"{parser.get_format_instructions()}\n\n"
-        f"Organization description:\n{description}\n\n"
-        f"Candidate industries:\n{json.dumps(candidates, ensure_ascii=False, indent=2)}"
+        f"Classify the organization into at most {max_count} industries.\n\n"
+        f"Allowed answers:\n{_candidate_lines(candidates)}\n\n"
+        "Rules:\n"
+        "- Return one allowed answer per line.\n"
+        "- Each line must be exactly one allowed answer copied verbatim.\n"
+        f"- Return no more than {max_count} values.\n"
+        "- If none fit, return NONE.\n"
+        "- Base the choice on what the organization does.\n"
+        "- Do not quote text from the page or description.\n"
+        "- Do not return JSON.\n"
+        "- Do not explain.\n"
+        "- Do not return the candidate list.\n"
+        "- Do not return any sentence from the page.\n\n"
+        f"Organization description:\n{description}"
     )
-    messages = [
-        SystemMessage(
-            content="You classify organizations into canonical industries. Return structured output only."
-        ),
-        HumanMessage(content=prompt),
-    ]
-    try:
-        report(progress, scope, "Calling LLM for industry selection...")
-        industry_llm = _industry_selection_llm(llm)
-        result = await industry_llm.ainvoke(messages)
-        selection = _parse_industry_selection_result(result, parser)
-    except Exception as exc:  # noqa: BLE001
-        report(progress, scope, f"Structured industry selection failed; retrying with JSON prompt. {exc}")
-        selection = await _retry_json_parse(
-            llm,
-            IndustrySelection,
-            parser,
-            messages,
-            progress=progress,
-            scope=scope,
-        )
-
-    return _validate_selected_industries(selection.industries, industries, max_count)
+    report(progress, scope, "Calling LLM for industry selection...")
+    return await _select_multiple_candidates(
+        llm,
+        prompt,
+        candidates,
+        max_count,
+        "industry",
+        progress,
+        scope,
+    )
 
 
 async def _extract_legal_structure(
     llm: BaseChatModel,
-    parser: PydanticOutputParser,
     page_text: str,
     legal_structures_csv: str,
     progress: ProgressCallback | None,
@@ -680,41 +667,33 @@ async def _extract_legal_structure(
         return None
 
     prompt = (
-        "Choose exactly one legal structure from the candidate list. "
-        "Only choose a legal structure that is supported by the current page text. "
-        "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n\n"
-        f"{parser.get_format_instructions()}\n\n"
-        f"Current page text:\n{page_text}\n\n"
-        f"Candidate legal structures:\n{json.dumps(legal_structures, ensure_ascii=False, indent=2)}"
+        "Classify the organization into exactly one legal structure.\n\n"
+        f"Allowed answers:\n{_candidate_lines(legal_structures)}\n\n"
+        "Rules:\n"
+        "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
+        "- If the organization name contains AG or SA, choose Company Limited by Shares (AG / SA) when that allowed answer exists.\n"
+        "- If the organization name contains GmbH or Sàrl, choose Limited Liability Company (GmbH / Sàrl) when that allowed answer exists.\n"
+        "- If none is supported by the current page text, return NONE.\n"
+        "- Do not quote text from the page.\n"
+        "- Do not return JSON.\n"
+        "- Do not explain.\n"
+        "- Do not return the candidate list.\n"
+        "- Do not return any sentence from the page.\n\n"
+        f"Current page text:\n{page_text}"
     )
-    messages = [
-        SystemMessage(
-            content="You classify organizations into canonical legal structures. Return structured output only."
-        ),
-        HumanMessage(content=prompt),
-    ]
-    try:
-        report(progress, scope, "Calling LLM for legal_structure selection...")
-        legal_structure_llm = _legal_structure_selection_llm(llm)
-        result = await legal_structure_llm.ainvoke(messages)
-        selection = _parse_legal_structure_selection_result(result, parser)
-    except Exception as exc:  # noqa: BLE001
-        report(progress, scope, f"Structured legal_structure selection failed; retrying with JSON prompt. {exc}")
-        selection = await _retry_json_parse(
-            llm,
-            LegalStructureSelection,
-            parser,
-            messages,
-            progress=progress,
-            scope=scope,
-        )
-
-    return _validate_selected_legal_structure(selection.legal_structure, legal_structures)
+    report(progress, scope, "Calling LLM for legal_structure selection...")
+    return await _select_single_candidate(
+        llm,
+        prompt,
+        legal_structures,
+        "legal_structure",
+        progress,
+        scope,
+    )
 
 
 async def _extract_sector(
     llm: BaseChatModel,
-    parser: PydanticOutputParser,
     description: str,
     page_text: str,
     sectors_csv: str,
@@ -726,42 +705,26 @@ async def _extract_sector(
         return None
 
     prompt = (
-        "Choose exactly one economic sector from the candidate list. "
-        "Only choose a sector that fits the organization description and page context. "
-        "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n\n"
-        f"{parser.get_format_instructions()}\n\n"
+        "Classify the organization into exactly one economic sector.\n\n"
+        f"Allowed answers:\n{_candidate_lines(sectors)}\n\n"
+        "Rules:\n"
+        "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
+        "- Base the choice on what the organization does.\n"
+        "- If none fits the organization context, return NONE.\n"
+        "- Do not quote text from the page.\n"
+        "- Do not return JSON.\n"
+        "- Do not explain.\n"
+        "- Do not return the candidate list.\n"
+        "- Do not return any sentence from the page.\n\n"
         f"Organization description:\n{description}\n\n"
-        f"Current page text:\n{page_text}\n\n"
-        f"Candidate sectors:\n{json.dumps(sectors, ensure_ascii=False, indent=2)}"
+        f"Current page text:\n{page_text}"
     )
-    messages = [
-        SystemMessage(
-            content="You classify organizations into canonical economic sectors. Return structured output only."
-        ),
-        HumanMessage(content=prompt),
-    ]
-    try:
-        report(progress, scope, "Calling LLM for sector selection...")
-        sector_llm = _sector_selection_llm(llm)
-        result = await sector_llm.ainvoke(messages)
-        selection = _parse_sector_selection_result(result, parser)
-    except Exception as exc:  # noqa: BLE001
-        report(progress, scope, f"Structured sector selection failed; retrying with JSON prompt. {exc}")
-        selection = await _retry_json_parse(
-            llm,
-            SectorSelection,
-            parser,
-            messages,
-            progress=progress,
-            scope=scope,
-        )
-
-    return _validate_selected_sector(selection.sector, sectors)
+    report(progress, scope, "Calling LLM for sector selection...")
+    return await _select_single_candidate(llm, prompt, sectors, "sector", progress, scope)
 
 
 async def _extract_company_type(
     llm: BaseChatModel,
-    parser: PydanticOutputParser,
     description: str,
     page_text: str,
     company_types_csv: str,
@@ -773,37 +736,147 @@ async def _extract_company_type(
         return None
 
     prompt = (
-        "Choose exactly one company type from the candidate list. "
-        "Only choose a company type that fits the organization description and page context. "
-        "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n\n"
-        f"{parser.get_format_instructions()}\n\n"
-        f"Organization description:\n{description}\n\n"
-        f"Current page text:\n{page_text}\n\n"
-        f"Candidate company types:\n{json.dumps(company_types, ensure_ascii=False, indent=2)}"
+        "Classify the organization into exactly one organization type.\n\n"
+        f"Allowed answers:\n{_candidate_lines(company_types)}\n\n"
+        "Rules:\n"
+        "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
+        "- If the organization sells products or services commercially, choose Commercial Enterprise.\n"
+        "- If none fits the current page text, return NONE.\n"
+        "- Do not quote text from the page.\n"
+        "- Do not return JSON.\n"
+        "- Do not explain.\n"
+        "- Do not return the candidate list.\n"
+        "- Do not return any sentence from the page.\n\n"
+        f"Current page text:\n{page_text}"
     )
-    messages = [
-        SystemMessage(
-            content="You classify organizations into canonical company types. Return structured output only."
-        ),
+    report(progress, scope, "Calling LLM for company_type selection...")
+    return await _select_single_candidate(
+        llm,
+        prompt,
+        company_types,
+        "company_type",
+        progress,
+        scope,
+    )
+
+
+def _candidate_lines(candidates: list[str]) -> str:
+    return "\n".join(candidates)
+
+
+async def _select_single_candidate(
+    llm: BaseChatModel,
+    prompt: str,
+    candidates: list[str],
+    field: str,
+    progress: ProgressCallback | None,
+    scope: str,
+) -> str | None:
+    messages = _fixed_list_selection_messages(prompt)
+    response = await llm.ainvoke(messages)
+    response_text = _response_text(response)
+    selected = _parse_single_candidate_response(response_text, candidates)
+    if selected != LLM_LIST_SELECTION_MISMATCH:
+        return selected
+
+    report(
+        progress,
+        scope,
+        f"LLM {field} response did not match list elements; retrying once. "
+        f"Response: {_truncate_progress_value(response_text, 120)}",
+    )
+    retry_response = await llm.ainvoke(messages)
+    retry_response_text = _response_text(retry_response)
+    retry_selected = _parse_single_candidate_response(retry_response_text, candidates)
+    if retry_selected != LLM_LIST_SELECTION_MISMATCH:
+        return retry_selected
+
+    report(
+        progress,
+        scope,
+        f"LLM {field} response did not match list elements. "
+        f"Response: {_truncate_progress_value(retry_response_text, 120)}",
+    )
+    return LLM_LIST_SELECTION_MISMATCH
+
+
+async def _select_multiple_candidates(
+    llm: BaseChatModel,
+    prompt: str,
+    candidates: list[str],
+    max_count: int,
+    field: str,
+    progress: ProgressCallback | None,
+    scope: str,
+) -> list[str]:
+    messages = _fixed_list_selection_messages(prompt)
+    response = await llm.ainvoke(messages)
+    selected = _parse_multiple_candidate_response(_response_text(response), candidates, max_count)
+    if selected != LLM_LIST_SELECTION_MISMATCH:
+        return selected
+
+    report(
+        progress,
+        scope,
+        f"LLM {field} response did not match list elements; retrying once. "
+        f"Response: {_truncate_progress_value(_response_text(response), 120)}",
+    )
+    retry_response = await llm.ainvoke(messages)
+    retry_selected = _parse_multiple_candidate_response(
+        _response_text(retry_response),
+        candidates,
+        max_count,
+    )
+    if retry_selected != LLM_LIST_SELECTION_MISMATCH:
+        return retry_selected
+
+    report(
+        progress,
+        scope,
+        f"LLM {field} response did not match list elements. "
+        f"Response: {_truncate_progress_value(_response_text(retry_response), 120)}",
+    )
+    return [LLM_LIST_SELECTION_MISMATCH]
+
+
+def _fixed_list_selection_messages(prompt: str) -> list:
+    return [
+        SystemMessage(content="You choose exact values from candidate lists."),
         HumanMessage(content=prompt),
     ]
-    try:
-        report(progress, scope, "Calling LLM for company_type selection...")
-        company_type_llm = _company_type_selection_llm(llm)
-        result = await company_type_llm.ainvoke(messages)
-        selection = _parse_company_type_selection_result(result, parser)
-    except Exception as exc:  # noqa: BLE001
-        report(progress, scope, f"Structured company_type selection failed; retrying with JSON prompt. {exc}")
-        selection = await _retry_json_parse(
-            llm,
-            CompanyTypeSelection,
-            parser,
-            messages,
-            progress=progress,
-            scope=scope,
-        )
 
-    return _validate_selected_company_type(selection.company_type, company_types)
+
+def _response_text(response: object) -> str:
+    return str(getattr(response, "content", response)).strip()
+
+
+def _parse_single_candidate_response(response_text: str, candidates: list[str]) -> str | None:
+    stripped = response_text.strip()
+    if stripped == "NONE":
+        return None
+    if stripped in candidates:
+        return stripped
+    return LLM_LIST_SELECTION_MISMATCH
+
+
+def _parse_multiple_candidate_response(
+    response_text: str,
+    candidates: list[str],
+    max_count: int,
+) -> list[str] | str:
+    lines = [line.strip() for line in response_text.splitlines() if line.strip()]
+    if lines == ["NONE"]:
+        return []
+    if not lines or len(lines) > max_count:
+        return LLM_LIST_SELECTION_MISMATCH
+    if any(line not in candidates for line in lines):
+        return LLM_LIST_SELECTION_MISMATCH
+
+    valid: list[str] = []
+    for line in lines:
+        if line not in valid:
+            valid.append(line)
+    return valid[:max_count]
 
 
 def _load_industries(path: Path) -> list[str]:
@@ -1076,58 +1149,6 @@ def _shortlist_industries_by_embedding(
     scores = industry_embeddings @ description_embedding
     ranked_indices = sorted(range(len(industries)), key=lambda index: float(scores[index]), reverse=True)
     return [industries[index] for index in ranked_indices[:shortlist_size]]
-
-
-def _industry_selection_llm(llm: BaseChatModel):
-    if type(llm).__name__ == "ChatOllama":
-        return llm.bind(format="json")
-    return llm.with_structured_output(IndustrySelection)
-
-
-def _legal_structure_selection_llm(llm: BaseChatModel):
-    if type(llm).__name__ == "ChatOllama":
-        return llm.bind(format="json")
-    return llm.with_structured_output(LegalStructureSelection)
-
-
-def _sector_selection_llm(llm: BaseChatModel):
-    if type(llm).__name__ == "ChatOllama":
-        return llm.bind(format="json")
-    return llm.with_structured_output(SectorSelection)
-
-
-def _company_type_selection_llm(llm: BaseChatModel):
-    if type(llm).__name__ == "ChatOllama":
-        return llm.bind(format="json")
-    return llm.with_structured_output(CompanyTypeSelection)
-
-
-def _parse_industry_selection_result(
-    result: object,
-    parser: PydanticOutputParser,
-) -> IndustrySelection:
-    return _parse_structured_result(result, IndustrySelection, parser)
-
-
-def _parse_legal_structure_selection_result(
-    result: object,
-    parser: PydanticOutputParser,
-) -> LegalStructureSelection:
-    return _parse_structured_result(result, LegalStructureSelection, parser)
-
-
-def _parse_sector_selection_result(
-    result: object,
-    parser: PydanticOutputParser,
-) -> SectorSelection:
-    return _parse_structured_result(result, SectorSelection, parser)
-
-
-def _parse_company_type_selection_result(
-    result: object,
-    parser: PydanticOutputParser,
-) -> CompanyTypeSelection:
-    return _parse_structured_result(result, CompanyTypeSelection, parser)
 
 
 def _validate_selected_industries(
@@ -1582,15 +1603,33 @@ def _should_continue_crawl(
     state: AgentState,
     settings: Settings,
     queued_selected_link: bool = False,
+    progress: ProgressCallback | None = None,
+    scope: str = "crawl_control",
 ) -> bool:
+    links_in_queue = len(state.pending_urls)
+    has_minimum_profile = _has_minimum_profile(state.profile)
+    report(
+        progress,
+        scope,
+        "Crawl control: "
+        f"pages={len(state.website_pages)}/{settings.crawl_max_pages}, "
+        f"max_depth={settings.crawl_max_depth}, "
+        f"links_in_queue={links_in_queue}, "
+        f"minimum_profile={str(has_minimum_profile).lower()}",
+    )
     if len(state.website_pages) >= settings.crawl_max_pages:
+        report(progress, scope, "Stopping crawl: crawl_max_pages reached.")
         return False
     if not state.pending_urls:
+        report(progress, scope, "Stopping crawl: no links in queue.")
         return False
     if queued_selected_link:
+        report(progress, scope, "Continuing crawl: selected links were added to the queue.")
         return True
-    if state.page_analysis and state.page_analysis.is_complete and _has_minimum_profile(state.profile):
+    if state.page_analysis and state.page_analysis.is_complete and has_minimum_profile:
+        report(progress, scope, "Stopping crawl: LLM marked crawl complete and minimum profile is present.")
         return False
+    report(progress, scope, "Continuing crawl: links remain in queue.")
     return True
 
 
@@ -1604,6 +1643,7 @@ def _has_minimum_profile(profile: OrganizationProfile | None) -> bool:
         and profile.sector
         and profile.company_type
         and profile.industry
+        and profile.employees
         and (profile.address or profile.email or profile.phone)
         and profile.evidence
     )
