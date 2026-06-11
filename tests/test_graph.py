@@ -8,6 +8,7 @@ from org_agent.graph import (
     NO_REGISTRY_PURPOSE_MESSAGE,
     NO_REGISTRY_REGION_MESSAGE,
     NO_REGISTRY_REGISTRATION_ID_MESSAGE,
+    _parse_company_type_selection_result,
     _fill_registry_only_field_messages,
     _extract_page_info,
     _keep_requested_extraction_fields,
@@ -24,6 +25,8 @@ from org_agent.graph import (
     _normalize_profile_country,
     _parse_crawl_decision_result,
     _parse_industry_selection_result,
+    _parse_legal_form_selection_result,
+    _parse_sector_selection_result,
     _parse_structured_result,
     _queried_country_value,
     _missing_registry_credentials_message,
@@ -31,21 +34,27 @@ from org_agent.graph import (
     _should_continue_crawl,
     _truncate_progress_value,
     _validate_profile_email,
+    _validate_selected_company_type,
     _validate_selected_industries,
+    _validate_selected_legal_form,
+    _validate_selected_sector,
     _validated_address_fields,
 )
 from org_agent.models import (
     AgentState,
+    CompanyTypeSelection,
     CrawlDecision,
     CrawlTarget,
     EvidenceEntry,
     IndustrySelection,
+    LegalFormSelection,
     LookupInput,
     OrganizationProfile,
     OrganizationProfilePatch,
     PageAnalysis,
     PageExtraction,
     RegistryResult,
+    SectorSelection,
     WebsiteOrganizationProfilePatch,
     WebsitePage,
 )
@@ -95,6 +104,39 @@ def test_validate_selected_industries_keeps_only_canonical_values() -> None:
         ["AgroTech", "Metallurgy"],
         2,
     ) == ["AgroTech", "Metallurgy"]
+
+
+def test_validate_selected_sector_keeps_only_canonical_value() -> None:
+    assert _validate_selected_sector(
+        "Manufacturer (secondary)",
+        ["Producer (primary)", "Manufacturer (secondary)"],
+    ) == "Manufacturer (secondary)"
+    assert _validate_selected_sector(
+        "Invented",
+        ["Producer (primary)", "Manufacturer (secondary)"],
+    ) is None
+
+
+def test_validate_selected_company_type_keeps_only_canonical_value() -> None:
+    assert _validate_selected_company_type(
+        "Academic Institution",
+        ["Commercial Enterprise", "Academic Institution"],
+    ) == "Academic Institution"
+    assert _validate_selected_company_type(
+        "Invented",
+        ["Commercial Enterprise", "Academic Institution"],
+    ) is None
+
+
+def test_validate_selected_legal_form_keeps_only_canonical_value() -> None:
+    assert _validate_selected_legal_form(
+        "Limited Liability Company (GmbH / Sàrl)",
+        ["Company Limited by Shares (AG / SA)", "Limited Liability Company (GmbH / Sàrl)"],
+    ) == "Limited Liability Company (GmbH / Sàrl)"
+    assert _validate_selected_legal_form(
+        "Invented",
+        ["Company Limited by Shares (AG / SA)", "Limited Liability Company (GmbH / Sàrl)"],
+    ) is None
 
 
 def test_load_address_fields_config_requires_prompt_and_validation(tmp_path) -> None:
@@ -294,6 +336,60 @@ def test_parse_industry_selection_accepts_schema_like_properties_wrapper() -> No
     assert selection.reasoning == "Selected based on snacks production."
 
 
+def test_parse_sector_selection_accepts_schema_like_properties_wrapper() -> None:
+    parser = PydanticOutputParser(pydantic_object=SectorSelection)
+
+    selection = _parse_sector_selection_result(
+        {
+            "properties": {
+                "sector": "Manufacturer (secondary)",
+                "reasoning": "Selected based on production activity.",
+            },
+            "required": ["reasoning"],
+        },
+        parser,
+    )
+
+    assert selection.sector == "Manufacturer (secondary)"
+    assert selection.reasoning == "Selected based on production activity."
+
+
+def test_parse_company_type_selection_accepts_schema_like_properties_wrapper() -> None:
+    parser = PydanticOutputParser(pydantic_object=CompanyTypeSelection)
+
+    selection = _parse_company_type_selection_result(
+        {
+            "properties": {
+                "company_type": "Academic Institution",
+                "reasoning": "Selected based on university context.",
+            },
+            "required": ["reasoning"],
+        },
+        parser,
+    )
+
+    assert selection.company_type == "Academic Institution"
+    assert selection.reasoning == "Selected based on university context."
+
+
+def test_parse_legal_form_selection_accepts_schema_like_properties_wrapper() -> None:
+    parser = PydanticOutputParser(pydantic_object=LegalFormSelection)
+
+    selection = _parse_legal_form_selection_result(
+        {
+            "properties": {
+                "legal_form": "Limited Liability Company (GmbH / Sàrl)",
+                "reasoning": "Selected based on GmbH mention.",
+            },
+            "required": ["reasoning"],
+        },
+        parser,
+    )
+
+    assert selection.legal_form == "Limited Liability Company (GmbH / Sàrl)"
+    assert selection.reasoning == "Selected based on GmbH mention."
+
+
 def test_parse_crawl_decision_accepts_schema_like_properties_wrapper() -> None:
     parser = PydanticOutputParser(pydantic_object=CrawlDecision)
 
@@ -364,16 +460,42 @@ def test_extract_page_info_prompt_excludes_registry_results() -> None:
     assert "Registry results:" not in prompt
 
 
+def test_extract_page_info_prompt_includes_company_size_guidance() -> None:
+    llm = _CapturingStructuredLLM()
+    parser = PydanticOutputParser(pydantic_object=PageExtraction)
+
+    asyncio.run(
+        _extract_page_info(
+            llm,
+            parser,
+            "Example Ltd",
+            "https://example.com",
+            ["company_size"],
+            WebsitePage(url="https://example.com", text="About page text."),
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[-1].content
+
+    assert "For company_size" in prompt
+    assert "Rounded estimates are allowed" in prompt
+    assert "around 100 employees' -> 100" in prompt
+
+
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
         queried_website="https://example.com",
         industry="Software",
+        sector="Knowledge & Information (quaternary)",
+        company_type="Commercial Enterprise",
+        company_size=42,
         address="Example Street 1",
     )
 
     assert _missing_profile_fields(profile) == [
-        "legal_form",
         "phone",
         "email",
         "country",
@@ -397,6 +519,10 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
 
     assert "description" not in patch_properties
     assert "industry" not in patch_properties
+    assert "legal_form" not in patch_properties
+    assert "sector" not in patch_properties
+    assert "company_type" not in patch_properties
+    assert "company_size" in patch_properties
     assert "legal_address" not in str(schema)
     assert "official_company_name" not in str(schema)
     assert "queried_name" not in str(schema)
@@ -408,9 +534,9 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
 def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
     extraction = PageExtraction(
         profile_patch=WebsiteOrganizationProfilePatch(
-            legal_form="Limited company",
             address="Example Street 1",
             phone="+1 555 0100",
+            country="Switzerland",
         ),
         evidence=[
             EvidenceEntry(
@@ -418,19 +544,19 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
                 value="Example Ltd Official",
                 reasoning="Found on page.",
             ),
-            EvidenceEntry(field="legal_form", value="Limited company", reasoning="Found on page."),
             EvidenceEntry(field="address", value="Example Street 1", reasoning="Found on page."),
             EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found on page."),
+            EvidenceEntry(field="country", value="Switzerland", reasoning="Found on page."),
         ],
-        missing_fields=["address", "phone", "email"],
+        missing_fields=["address", "phone", "email", "country"],
         reasoning="Extracted fields.",
     )
 
     _keep_requested_extraction_fields(extraction, ["address", "email"])
 
-    assert extraction.profile_patch.legal_form is None
     assert extraction.profile_patch.address == "Example Street 1"
     assert extraction.profile_patch.phone is None
+    assert extraction.profile_patch.country is None
     assert [entry.field for entry in extraction.evidence] == ["address"]
     assert extraction.missing_fields == ["address", "email"]
 
@@ -721,8 +847,12 @@ def test_should_continue_crawl_visits_newly_queued_selected_link() -> None:
         profile=OrganizationProfile(
             queried_name="Example Ltd",
             queried_website="https://example.com",
+            legal_form="Limited Liability Company (GmbH / Sàrl)",
             description="Example Ltd does things.",
             industry="Food",
+            sector="Manufacturer (secondary)",
+            company_type="Commercial Enterprise",
+            company_size=42,
             phone="+1 555 0100",
             evidence=[EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found.")],
         ),

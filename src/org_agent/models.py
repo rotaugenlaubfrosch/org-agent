@@ -12,6 +12,9 @@ PROFILE_DISPLAY_FIELDS = (
     "legal_form",
     "industry",
     "description",
+    "sector",
+    "company_type",
+    "company_size",
     "purpose",
     "address",
     "legal_address",
@@ -36,6 +39,9 @@ WEBSITE_PROFILE_DISPLAY_FIELDS = (
     "legal_form",
     "industry",
     "description",
+    "sector",
+    "company_type",
+    "company_size",
     "address",
     "phone",
     "email",
@@ -76,6 +82,9 @@ class OrganizationProfile(BaseModel):
         default=None,
         description="Short factual structural description without advertising language.",
     )
+    sector: str | None = None
+    company_type: str | None = None
+    company_size: int | None = None
     purpose: str | None = None
     address: str | None = None
     address_fields: dict[str, str] = Field(default_factory=dict)
@@ -99,6 +108,9 @@ class OrganizationProfilePatch(BaseModel):
     legal_form: str | None = None
     industry: str | None = None
     description: str | None = None
+    sector: str | None = None
+    company_type: str | None = None
+    company_size: int | None = None
     purpose: str | None = None
     address: str | None = None
     legal_address: str | None = None
@@ -109,11 +121,11 @@ class OrganizationProfilePatch(BaseModel):
 
 
 class WebsiteOrganizationProfilePatch(BaseModel):
-    legal_form: str | None = None
     address: str | None = None
     phone: str | None = None
     email: str | None = None
     country: str | None = None
+    company_size: int | None = None
 
 
 class LookupInput(BaseModel):
@@ -165,6 +177,30 @@ class IndustrySelection(BaseModel):
         description="Canonical industries selected from the provided candidate list.",
     )
     reasoning: str = Field(description="Brief explanation of the industry selection.")
+
+
+class SectorSelection(BaseModel):
+    sector: str | None = Field(
+        default=None,
+        description="Canonical economic sector selected from the provided candidate list.",
+    )
+    reasoning: str = Field(description="Brief explanation of the sector selection.")
+
+
+class CompanyTypeSelection(BaseModel):
+    company_type: str | None = Field(
+        default=None,
+        description="Canonical company type selected from the provided candidate list.",
+    )
+    reasoning: str = Field(description="Brief explanation of the company type selection.")
+
+
+class LegalFormSelection(BaseModel):
+    legal_form: str | None = Field(
+        default=None,
+        description="Canonical legal form selected from the provided candidate list.",
+    )
+    reasoning: str = Field(description="Brief explanation of the legal form selection.")
 
 
 class PageExtraction(BaseModel):

@@ -39,3 +39,75 @@ def test_print_lookup_result_shows_registry_status_without_registry_profile(monk
     assert "Registry Profile" in rendered
     assert "status" in rendered
     assert "Registry lookup was not called because no country registry was selected." in rendered
+
+
+def test_print_lookup_result_shows_sector_in_website_profile(monkeypatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
+    result = LookupResult(
+        website_profile=OrganizationProfile(
+            queried_name="Example Ltd",
+            sector="Professional Services (tertiary)",
+        ),
+        registry_message="Registry lookup was not called because no country registry was selected.",
+    )
+
+    cli._print_lookup_result(result)
+
+    rendered = output.getvalue()
+    assert "sector" in rendered
+    assert "Professional Services (tertiary)" in rendered
+
+
+def test_print_lookup_result_shows_company_size_in_website_profile(monkeypatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
+    result = LookupResult(
+        website_profile=OrganizationProfile(
+            queried_name="Example Ltd",
+            company_size=100,
+        ),
+        registry_message="Registry lookup was not called because no country registry was selected.",
+    )
+
+    cli._print_lookup_result(result)
+
+    rendered = output.getvalue()
+    assert "company_size" in rendered
+    assert "100" in rendered
+
+
+def test_print_lookup_result_shows_company_type_in_website_profile(monkeypatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
+    result = LookupResult(
+        website_profile=OrganizationProfile(
+            queried_name="Example Ltd",
+            company_type="Research Institution",
+        ),
+        registry_message="Registry lookup was not called because no country registry was selected.",
+    )
+
+    cli._print_lookup_result(result)
+
+    rendered = output.getvalue()
+    assert "company_type" in rendered
+    assert "Research Institution" in rendered
+
+
+def test_print_lookup_result_shows_legal_form_in_website_profile(monkeypatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
+    result = LookupResult(
+        website_profile=OrganizationProfile(
+            queried_name="Example Ltd",
+            legal_form="Limited Liability Company (GmbH / Sàrl)",
+        ),
+        registry_message="Registry lookup was not called because no country registry was selected.",
+    )
+
+    cli._print_lookup_result(result)
+
+    rendered = output.getvalue()
+    assert "legal_form" in rendered
+    assert "Limited Liability Company" in rendered
