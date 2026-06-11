@@ -66,6 +66,8 @@ def main() -> None:
             expected_value = expected.get(field, MISSING_GROUND_TRUTH)
             actual_value = website_prediction.get(field)
             table.add_row(field, _format_value(expected_value), _format_value(actual_value))
+            if field == "queried_country":
+                table.add_section()
         table.add_section()
         for field in registry_fields:
             expected_value = expected.get(field, MISSING_GROUND_TRUTH)
