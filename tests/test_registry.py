@@ -31,7 +31,7 @@ def test_build_zefix_profile_patch_maps_expected_fields() -> None:
     assert patch.registration_id == "CHE-107.721.785"
     assert patch.official_company_name == "Zweifel Chips & Snacks AG"
     assert patch.purpose == "Production and sale of snacks."
-    assert patch.legal_form == "AG"
+    assert patch.legal_structure == "AG"
     assert patch.country == "Switzerland"
     assert patch.region == "ZH"
     assert patch.legal_address == "Zweifel Chips & Snacks AG, Bahnstrasse 40, 8957 Spreitenbach"

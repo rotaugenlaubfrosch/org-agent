@@ -95,13 +95,13 @@ def test_print_lookup_result_shows_company_type_in_website_profile(monkeypatch) 
     assert "Research Institution" in rendered
 
 
-def test_print_lookup_result_shows_legal_form_in_website_profile(monkeypatch) -> None:
+def test_print_lookup_result_shows_legal_structure_in_website_profile(monkeypatch) -> None:
     output = StringIO()
     monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
     result = LookupResult(
         website_profile=OrganizationProfile(
             queried_name="Example Ltd",
-            legal_form="Limited Liability Company (GmbH / Sàrl)",
+            legal_structure="Limited Liability Company (GmbH / Sàrl)",
         ),
         registry_message="Registry lookup was not called because no country registry was selected.",
     )
@@ -109,5 +109,5 @@ def test_print_lookup_result_shows_legal_form_in_website_profile(monkeypatch) ->
     cli._print_lookup_result(result)
 
     rendered = output.getvalue()
-    assert "legal_form" in rendered
+    assert "legal_structure" in rendered
     assert "Limited Liability Company" in rendered

@@ -25,7 +25,7 @@ from org_agent.graph import (
     _normalize_profile_country,
     _parse_crawl_decision_result,
     _parse_industry_selection_result,
-    _parse_legal_form_selection_result,
+    _parse_legal_structure_selection_result,
     _parse_sector_selection_result,
     _parse_structured_result,
     _queried_country_value,
@@ -36,7 +36,7 @@ from org_agent.graph import (
     _validate_profile_email,
     _validate_selected_company_type,
     _validate_selected_industries,
-    _validate_selected_legal_form,
+    _validate_selected_legal_structure,
     _validate_selected_sector,
     _validated_address_fields,
 )
@@ -47,7 +47,7 @@ from org_agent.models import (
     CrawlTarget,
     EvidenceEntry,
     IndustrySelection,
-    LegalFormSelection,
+    LegalStructureSelection,
     LookupInput,
     OrganizationProfile,
     OrganizationProfilePatch,
@@ -128,12 +128,12 @@ def test_validate_selected_company_type_keeps_only_canonical_value() -> None:
     ) is None
 
 
-def test_validate_selected_legal_form_keeps_only_canonical_value() -> None:
-    assert _validate_selected_legal_form(
+def test_validate_selected_legal_structure_keeps_only_canonical_value() -> None:
+    assert _validate_selected_legal_structure(
         "Limited Liability Company (GmbH / Sàrl)",
         ["Company Limited by Shares (AG / SA)", "Limited Liability Company (GmbH / Sàrl)"],
     ) == "Limited Liability Company (GmbH / Sàrl)"
-    assert _validate_selected_legal_form(
+    assert _validate_selected_legal_structure(
         "Invented",
         ["Company Limited by Shares (AG / SA)", "Limited Liability Company (GmbH / Sàrl)"],
     ) is None
@@ -372,13 +372,13 @@ def test_parse_company_type_selection_accepts_schema_like_properties_wrapper() -
     assert selection.reasoning == "Selected based on university context."
 
 
-def test_parse_legal_form_selection_accepts_schema_like_properties_wrapper() -> None:
-    parser = PydanticOutputParser(pydantic_object=LegalFormSelection)
+def test_parse_legal_structure_selection_accepts_schema_like_properties_wrapper() -> None:
+    parser = PydanticOutputParser(pydantic_object=LegalStructureSelection)
 
-    selection = _parse_legal_form_selection_result(
+    selection = _parse_legal_structure_selection_result(
         {
             "properties": {
-                "legal_form": "Limited Liability Company (GmbH / Sàrl)",
+                "legal_structure": "Limited Liability Company (GmbH / Sàrl)",
                 "reasoning": "Selected based on GmbH mention.",
             },
             "required": ["reasoning"],
@@ -386,7 +386,7 @@ def test_parse_legal_form_selection_accepts_schema_like_properties_wrapper() -> 
         parser,
     )
 
-    assert selection.legal_form == "Limited Liability Company (GmbH / Sàrl)"
+    assert selection.legal_structure == "Limited Liability Company (GmbH / Sàrl)"
     assert selection.reasoning == "Selected based on GmbH mention."
 
 
@@ -501,7 +501,7 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
         "country",
     ]
     assert _missing_crawl_fields(profile) == [
-        "legal_form",
+        "legal_structure",
         "phone",
         "description",
         "email",
@@ -519,7 +519,7 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
 
     assert "description" not in patch_properties
     assert "industry" not in patch_properties
-    assert "legal_form" not in patch_properties
+    assert "legal_structure" not in patch_properties
     assert "sector" not in patch_properties
     assert "company_type" not in patch_properties
     assert "company_size" in patch_properties
@@ -623,7 +623,7 @@ def test_merge_profile_patch_missing_only_does_not_overwrite_website_fields() ->
     patch = OrganizationProfilePatch(
         official_company_name="Example Ltd Official",
         registration_id="CHE-123",
-        legal_form="AG",
+        legal_structure="AG",
         address="Registry Street 2",
         phone="+1 555 9999",
         email="registry@example.com",
@@ -635,7 +635,7 @@ def test_merge_profile_patch_missing_only_does_not_overwrite_website_fields() ->
 
     assert profile.official_company_name == "Example Ltd Official"
     assert profile.registration_id == "CHE-123"
-    assert profile.legal_form == "AG"
+    assert profile.legal_structure == "AG"
     assert profile.legal_address == "Registry Street 2, 8000 Zurich"
     assert profile.address == "Website Street 1"
     assert profile.phone == "+1 555 0100"
@@ -644,7 +644,7 @@ def test_merge_profile_patch_missing_only_does_not_overwrite_website_fields() ->
     assert filled_fields == [
         ("official_company_name", "Example Ltd Official"),
         ("registration_id", "CHE-123"),
-        ("legal_form", "AG"),
+        ("legal_structure", "AG"),
         ("legal_address", "Registry Street 2, 8000 Zurich"),
     ]
 
@@ -847,7 +847,7 @@ def test_should_continue_crawl_visits_newly_queued_selected_link() -> None:
         profile=OrganizationProfile(
             queried_name="Example Ltd",
             queried_website="https://example.com",
-            legal_form="Limited Liability Company (GmbH / Sàrl)",
+            legal_structure="Limited Liability Company (GmbH / Sàrl)",
             description="Example Ltd does things.",
             industry="Food",
             sector="Manufacturer (secondary)",

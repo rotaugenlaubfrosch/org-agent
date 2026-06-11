@@ -7,7 +7,7 @@ from org_agent.settings import (
     DEFAULT_CRAWL_LOG_DIR,
     DEFAULT_DESCRIPTION_SYSTEM_PROMPT,
     DEFAULT_INDUSTRIES_CSV,
-    DEFAULT_LEGAL_FORMS_CSV,
+    DEFAULT_LEGAL_STRUCTURES_CSV,
     DEFAULT_SECTORS_CSV,
     Settings,
     validate_settings,
@@ -29,7 +29,7 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path)
     monkeypatch.delenv("ORG_AGENT_INDUSTRY_SHORTLIST_SIZE", raising=False)
     monkeypatch.delenv("ORG_AGENT_SECTORS_CSV", raising=False)
     monkeypatch.delenv("ORG_AGENT_COMPANY_TYPES_CSV", raising=False)
-    monkeypatch.delenv("ORG_AGENT_LEGAL_FORMS_CSV", raising=False)
+    monkeypatch.delenv("ORG_AGENT_LEGAL_STRUCTURES_CSV", raising=False)
 
     settings = Settings()
 
@@ -47,7 +47,7 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path)
     assert settings.industry_shortlist_size == 25
     assert settings.sectors_csv == DEFAULT_SECTORS_CSV
     assert settings.company_types_csv == DEFAULT_COMPANY_TYPES_CSV
-    assert settings.legal_forms_csv == DEFAULT_LEGAL_FORMS_CSV
+    assert settings.legal_structures_csv == DEFAULT_LEGAL_STRUCTURES_CSV
     validate_settings(settings)
 
 
@@ -91,13 +91,13 @@ def test_settings_accepts_company_type_settings(monkeypatch, tmp_path: Path) -> 
     assert settings.company_types_csv == "company_types.csv"
 
 
-def test_settings_accepts_legal_form_settings(monkeypatch, tmp_path: Path) -> None:
+def test_settings_accepts_legal_structure_settings(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("ORG_AGENT_LEGAL_FORMS_CSV", "legal_forms.csv")
+    monkeypatch.setenv("ORG_AGENT_LEGAL_STRUCTURES_CSV", "legal_structures.csv")
 
     settings = Settings()
 
-    assert settings.legal_forms_csv == "legal_forms.csv"
+    assert settings.legal_structures_csv == "legal_structures.csv"
 
 
 def test_settings_accepts_headed_playwright(monkeypatch, tmp_path: Path) -> None:

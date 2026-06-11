@@ -9,7 +9,7 @@ PROFILE_DISPLAY_FIELDS = (
     "queried_website",
     "queried_country",
     "registration_id",
-    "legal_form",
+    "legal_structure",
     "industry",
     "description",
     "sector",
@@ -36,7 +36,7 @@ WEBSITE_PROFILE_DISPLAY_FIELDS = (
     "queried_name",
     "queried_website",
     "queried_country",
-    "legal_form",
+    "legal_structure",
     "industry",
     "description",
     "sector",
@@ -51,7 +51,7 @@ WEBSITE_PROFILE_DISPLAY_FIELDS = (
 REGISTRY_PROFILE_DISPLAY_FIELDS = (
     "official_company_name",
     "registration_id",
-    "legal_form",
+    "legal_structure",
     "purpose",
     "legal_address",
     "country",
@@ -76,7 +76,7 @@ class OrganizationProfile(BaseModel):
     queried_website: str | None = None
     queried_country: str = "not specified"
     registration_id: str | None = None
-    legal_form: str | None = None
+    legal_structure: str | None = None
     industry: str | None = None
     description: str | None = Field(
         default=None,
@@ -105,7 +105,7 @@ class LookupResult(BaseModel):
 class OrganizationProfilePatch(BaseModel):
     official_company_name: str | None = None
     registration_id: str | None = None
-    legal_form: str | None = None
+    legal_structure: str | None = None
     industry: str | None = None
     description: str | None = None
     sector: str | None = None
@@ -195,12 +195,12 @@ class CompanyTypeSelection(BaseModel):
     reasoning: str = Field(description="Brief explanation of the company type selection.")
 
 
-class LegalFormSelection(BaseModel):
-    legal_form: str | None = Field(
+class LegalStructureSelection(BaseModel):
+    legal_structure: str | None = Field(
         default=None,
-        description="Canonical legal form selected from the provided candidate list.",
+        description="Canonical legal structure selected from the provided candidate list.",
     )
-    reasoning: str = Field(description="Brief explanation of the legal form selection.")
+    reasoning: str = Field(description="Brief explanation of the legal structure selection.")
 
 
 class PageExtraction(BaseModel):

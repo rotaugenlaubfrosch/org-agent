@@ -114,13 +114,13 @@ def _legal_suffix_tokens() -> set[str]:
 
 
 def _build_profile_patch(detail: dict, selected_name: str | None = None) -> OrganizationProfilePatch:
-    legal_form = _pick_legal_form(detail.get("legalForm") or {})
+    legal_structure = _pick_legal_structure(detail.get("legalForm") or {})
     address = detail.get("address") or {}
     legal_address = _format_legal_address(detail.get("address") or {})
     return OrganizationProfilePatch(
         official_company_name=detail.get("name") or selected_name or address.get("organisation"),
         registration_id=detail.get("uid"),
-        legal_form=legal_form,
+        legal_structure=legal_structure,
         purpose=detail.get("purpose"),
         legal_address=legal_address,
         country="Switzerland",
@@ -128,9 +128,9 @@ def _build_profile_patch(detail: dict, selected_name: str | None = None) -> Orga
     )
 
 
-def _pick_legal_form(legal_form: dict) -> str | None:
-    short_name = legal_form.get("shortName") or {}
-    full_name = legal_form.get("name") or {}
+def _pick_legal_structure(legal_structure: dict) -> str | None:
+    short_name = legal_structure.get("shortName") or {}
+    full_name = legal_structure.get("name") or {}
     for key in ("en", "de", "fr", "it"):
         value = short_name.get(key) or full_name.get(key)
         if value:
@@ -157,7 +157,7 @@ def _build_evidence(patch: OrganizationProfilePatch, source_url: str) -> list[Ev
         "registration_id": patch.registration_id,
         "purpose": patch.purpose,
         "legal_address": patch.legal_address,
-        "legal_form": patch.legal_form,
+        "legal_structure": patch.legal_structure,
     }
     for field, value in mappings.items():
         if value:

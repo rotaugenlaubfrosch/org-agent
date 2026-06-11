@@ -21,7 +21,7 @@ DEFAULT_DESCRIPTION_SYSTEM_PROMPT = (
 DEFAULT_INDUSTRIES_CSV = str(Path(__file__).resolve().parent / "data" / "industries.csv")
 DEFAULT_SECTORS_CSV = str(Path(__file__).resolve().parent / "data" / "sectors.csv")
 DEFAULT_COMPANY_TYPES_CSV = str(Path(__file__).resolve().parent / "data" / "company_types.csv")
-DEFAULT_LEGAL_FORMS_CSV = str(Path(__file__).resolve().parent / "data" / "legal_forms.csv")
+DEFAULT_LEGAL_STRUCTURES_CSV = str(Path(__file__).resolve().parent / "data" / "legal_structures.csv")
 DEFAULT_CRAWL_LOG_DIR = str(Path(__file__).resolve().parents[2] / "logs")
 
 
@@ -56,7 +56,10 @@ class Settings(BaseSettings):
         default=DEFAULT_COMPANY_TYPES_CSV,
         alias="ORG_AGENT_COMPANY_TYPES_CSV",
     )
-    legal_forms_csv: str = Field(default=DEFAULT_LEGAL_FORMS_CSV, alias="ORG_AGENT_LEGAL_FORMS_CSV")
+    legal_structures_csv: str = Field(
+        default=DEFAULT_LEGAL_STRUCTURES_CSV,
+        alias="ORG_AGENT_LEGAL_STRUCTURES_CSV",
+    )
 
     def __init__(self, **data: object) -> None:
         env_path = find_dotenv(usecwd=True)

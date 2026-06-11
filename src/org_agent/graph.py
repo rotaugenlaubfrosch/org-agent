@@ -24,7 +24,7 @@ from org_agent.models import (
     CrawlTarget,
     EvidenceEntry,
     IndustrySelection,
-    LegalFormSelection,
+    LegalStructureSelection,
     LookupResult,
     LookupInput,
     OrganizationProfile,
@@ -59,7 +59,7 @@ EXTRACTABLE_PROFILE_FIELDS = (
 )
 
 DESCRIPTION_PROFILE_FIELD = "description"
-LEGAL_FORM_PROFILE_FIELD = "legal_form"
+LEGAL_STRUCTURE_PROFILE_FIELD = "legal_structure"
 SECTOR_PROFILE_FIELD = "sector"
 COMPANY_TYPE_PROFILE_FIELD = "company_type"
 INDUSTRY_PROFILE_FIELD = "industry"
@@ -91,7 +91,7 @@ def build_graph(
     llm = build_chat_model(settings)
     page_extraction_parser = PydanticOutputParser(pydantic_object=PageExtraction)
     crawl_decision_parser = PydanticOutputParser(pydantic_object=CrawlDecision)
-    legal_form_selection_parser = PydanticOutputParser(pydantic_object=LegalFormSelection)
+    legal_structure_selection_parser = PydanticOutputParser(pydantic_object=LegalStructureSelection)
     industry_selection_parser = PydanticOutputParser(pydantic_object=IndustrySelection)
     sector_selection_parser = PydanticOutputParser(pydantic_object=SectorSelection)
     company_type_selection_parser = PydanticOutputParser(pydantic_object=CompanyTypeSelection)
@@ -261,24 +261,24 @@ def build_graph(
                 )
             )
 
-        if state.profile.legal_form in {None, ""}:
-            legal_form = await _extract_legal_form(
+        if state.profile.legal_structure in {None, ""}:
+            legal_structure = await _extract_legal_structure(
                 llm,
-                legal_form_selection_parser,
+                legal_structure_selection_parser,
                 state.current_page.text,
-                settings.legal_forms_csv,
+                settings.legal_structures_csv,
                 progress,
                 "analyze_page",
             )
-            if legal_form:
-                state.profile.legal_form = legal_form
-                _report_filled_fields(progress, "analyze_page", [("legal_form", legal_form)])
+            if legal_structure:
+                state.profile.legal_structure = legal_structure
+                _report_filled_fields(progress, "analyze_page", [("legal_structure", legal_structure)])
                 state.profile.evidence.append(
                     EvidenceEntry(
-                        field="legal_form",
-                        value=legal_form,
+                        field="legal_structure",
+                        value=legal_structure,
                         source=state.current_page.url,
-                        reasoning="Selected from the configured legal form list using the dedicated legal form prompt.",
+                        reasoning="Selected from the configured legal structure list using the dedicated legal structure prompt.",
                     )
                 )
 
@@ -667,49 +667,49 @@ async def _extract_industries(
     return _validate_selected_industries(selection.industries, industries, max_count)
 
 
-async def _extract_legal_form(
+async def _extract_legal_structure(
     llm: BaseChatModel,
     parser: PydanticOutputParser,
     page_text: str,
-    legal_forms_csv: str,
+    legal_structures_csv: str,
     progress: ProgressCallback | None,
     scope: str,
 ) -> str | None:
-    legal_forms = _load_industries(Path(legal_forms_csv))
-    if not legal_forms:
+    legal_structures = _load_industries(Path(legal_structures_csv))
+    if not legal_structures:
         return None
 
     prompt = (
-        "Choose exactly one legal form from the candidate list. "
-        "Only choose a legal form that is supported by the current page text. "
+        "Choose exactly one legal structure from the candidate list. "
+        "Only choose a legal structure that is supported by the current page text. "
         "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n\n"
         f"{parser.get_format_instructions()}\n\n"
         f"Current page text:\n{page_text}\n\n"
-        f"Candidate legal forms:\n{json.dumps(legal_forms, ensure_ascii=False, indent=2)}"
+        f"Candidate legal structures:\n{json.dumps(legal_structures, ensure_ascii=False, indent=2)}"
     )
     messages = [
         SystemMessage(
-            content="You classify organizations into canonical legal forms. Return structured output only."
+            content="You classify organizations into canonical legal structures. Return structured output only."
         ),
         HumanMessage(content=prompt),
     ]
     try:
-        report(progress, scope, "Calling LLM for legal_form selection...")
-        legal_form_llm = _legal_form_selection_llm(llm)
-        result = await legal_form_llm.ainvoke(messages)
-        selection = _parse_legal_form_selection_result(result, parser)
+        report(progress, scope, "Calling LLM for legal_structure selection...")
+        legal_structure_llm = _legal_structure_selection_llm(llm)
+        result = await legal_structure_llm.ainvoke(messages)
+        selection = _parse_legal_structure_selection_result(result, parser)
     except Exception as exc:  # noqa: BLE001
-        report(progress, scope, f"Structured legal_form selection failed; retrying with JSON prompt. {exc}")
+        report(progress, scope, f"Structured legal_structure selection failed; retrying with JSON prompt. {exc}")
         selection = await _retry_json_parse(
             llm,
-            LegalFormSelection,
+            LegalStructureSelection,
             parser,
             messages,
             progress=progress,
             scope=scope,
         )
 
-    return _validate_selected_legal_form(selection.legal_form, legal_forms)
+    return _validate_selected_legal_structure(selection.legal_structure, legal_structures)
 
 
 async def _extract_sector(
@@ -1084,10 +1084,10 @@ def _industry_selection_llm(llm: BaseChatModel):
     return llm.with_structured_output(IndustrySelection)
 
 
-def _legal_form_selection_llm(llm: BaseChatModel):
+def _legal_structure_selection_llm(llm: BaseChatModel):
     if type(llm).__name__ == "ChatOllama":
         return llm.bind(format="json")
-    return llm.with_structured_output(LegalFormSelection)
+    return llm.with_structured_output(LegalStructureSelection)
 
 
 def _sector_selection_llm(llm: BaseChatModel):
@@ -1109,11 +1109,11 @@ def _parse_industry_selection_result(
     return _parse_structured_result(result, IndustrySelection, parser)
 
 
-def _parse_legal_form_selection_result(
+def _parse_legal_structure_selection_result(
     result: object,
     parser: PydanticOutputParser,
-) -> LegalFormSelection:
-    return _parse_structured_result(result, LegalFormSelection, parser)
+) -> LegalStructureSelection:
+    return _parse_structured_result(result, LegalStructureSelection, parser)
 
 
 def _parse_sector_selection_result(
@@ -1146,11 +1146,11 @@ def _validate_selected_industries(
     return valid
 
 
-def _validate_selected_legal_form(
+def _validate_selected_legal_structure(
     selected: str | None,
-    legal_forms: list[str],
+    legal_structures: list[str],
 ) -> str | None:
-    if selected in set(legal_forms):
+    if selected in set(legal_structures):
         return selected
     return None
 
@@ -1425,7 +1425,7 @@ def _registry_context_text(state: AgentState) -> str:
     if state.profile is not None:
         for value in (
             state.profile.queried_website,
-            state.profile.legal_form,
+            state.profile.legal_structure,
             state.profile.description,
             state.profile.sector,
             state.profile.company_type,
@@ -1486,8 +1486,8 @@ def _missing_profile_fields(profile: OrganizationProfile) -> list[str]:
 
 def _missing_crawl_fields(profile: OrganizationProfile) -> list[str]:
     fields = _missing_profile_fields(profile)
-    if profile.legal_form in {None, ""}:
-        fields.insert(0, LEGAL_FORM_PROFILE_FIELD)
+    if profile.legal_structure in {None, ""}:
+        fields.insert(0, LEGAL_STRUCTURE_PROFILE_FIELD)
     if profile.industry in {None, ""}:
         fields.insert(1, INDUSTRY_PROFILE_FIELD)
     if profile.sector in {None, ""}:
@@ -1599,7 +1599,7 @@ def _has_minimum_profile(profile: OrganizationProfile | None) -> bool:
         return False
     return bool(
         profile.queried_website
-        and profile.legal_form
+        and profile.legal_structure
         and profile.description
         and profile.sector
         and profile.company_type
