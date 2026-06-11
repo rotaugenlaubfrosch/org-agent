@@ -57,6 +57,9 @@ ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, default project l
 ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
 ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
 ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT=<system prompt for dedicated description extraction>
+ORG_AGENT_LEGAL_FORMS_CSV=src/org_agent/data/legal_forms.csv
+ORG_AGENT_SECTORS_CSV=src/org_agent/data/sectors.csv
+ORG_AGENT_COMPANY_TYPES_CSV=src/org_agent/data/company_types.csv
 ORG_AGENT_INDUSTRIES_CSV=src/org_agent/data/industries.csv
 ORG_AGENT_MAX_INDUSTRIES=<count, default 1>
 ORG_AGENT_INDUSTRY_SHORTLIST_SIZE=<count, default 25>
@@ -130,7 +133,7 @@ The crawler:
 
 The crawl uses a hybrid approach. The `filter_links` node deterministically filters and orders candidate links before the LLM sees them. Candidate links must contain an organization-information signal in the URL or visible link text, such as contact, imprint/legal, privacy, company/about, story, or terms. The later `analyze_page` node receives at most the first 25 filtered and ordered links plus the fields still missing from the profile, then asks the LLM which links should be crawled next. The crawler processes queued links in breadth-first order and does not invent `/contact` or `/impressum` paths.
 
-The `description` and `industry` fields use dedicated prompts instead of the generic page extraction prompt. `description` is generated from the current crawled page text using `ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT`. After description generation, `industry` is selected from `ORG_AGENT_INDUSTRIES_CSV`. The industries CSV is a headerless comma-separated list, for example `Additive Manufacturing,Metal-Organic Frameworks (MOF),Advanced Manufacturing`. If the list contains more entries than `ORG_AGENT_INDUSTRY_SHORTLIST_SIZE`, the generated description and industry labels are embedded with `intfloat/multilingual-e5-small`, the closest configured industries are shortlisted, and the LLM chooses at most `ORG_AGENT_MAX_INDUSTRIES`. Returned industries are accepted only if they exactly match entries from the CSV.
+The `description`, `legal_form`, `sector`, `company_type`, and `industry` fields use dedicated prompts instead of the generic page extraction prompt. `description` is generated from the current crawled page text using `ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT`. After description generation, `legal_form` is selected from `ORG_AGENT_LEGAL_FORMS_CSV` using only the current page text as context. The legal forms CSV is a headerless comma-separated list. By default it contains `Company Limited by Shares (AG / SA)`, `Limited Liability Company (GmbH / Sàrl)`, `Association (Verein)`, `Foundation (Stiftung)`, `Sole Proprietorship (Einzelunternehmen)`, `Partnership (Gesellschaft)`, `Cooperative (Genossenschaft)`, and `Public Law Institution (Öffentlich-rechtliche Anstalt)`. After legal form selection, `sector` is selected from `ORG_AGENT_SECTORS_CSV`. The sectors CSV is a headerless comma-separated list. By default it contains `Producer (primary)`, `Manufacturer (secondary)`, `Professional Services (tertiary)`, `Knowledge & Information (quaternary)`, and `Governance (quinary)`. After sector selection, `company_type` is selected from `ORG_AGENT_COMPANY_TYPES_CSV`. The company types CSV is a headerless comma-separated list. By default it contains `Commercial Enterprise`, `Academic Institution`, `Research Institution`, `Government Organisation`, `Non-Government / Non-Profit Organisation (NGO / NPO)`, and `Innovation / Funding Agency`. After company type selection, `industry` is selected from `ORG_AGENT_INDUSTRIES_CSV`. The industries CSV is a headerless comma-separated list, for example `Additive Manufacturing,Metal-Organic Frameworks (MOF),Advanced Manufacturing`. If the list contains more entries than `ORG_AGENT_INDUSTRY_SHORTLIST_SIZE`, the generated description and industry labels are embedded with `intfloat/multilingual-e5-small`, the closest configured industries are shortlisted, and the LLM chooses at most `ORG_AGENT_MAX_INDUSTRIES`. Returned legal forms, sectors, company types, and industries are accepted only if they exactly match entries from the configured CSV files. The `company_size` field is extracted by the generic page extraction prompt as an integer employee count. Rounded estimates are accepted when the website states an approximate count, such as `around 100 employees`; otherwise the field remains empty.
 
 Default crawl limits:
 
@@ -273,6 +276,9 @@ The result is a `LookupResult` with separate `website_profile` and `registry_pro
 - `legal_form`
 - `industry`
 - `description`
+- `sector`
+- `company_type`
+- `company_size`
 - `purpose`
 - `address`
 - `address_fields`
@@ -283,7 +289,7 @@ The result is a `LookupResult` with separate `website_profile` and `registry_pro
 - `region`
 - `evidence`
 
-The `queried_name` field is the original name passed to the CLI or API. The `queried_website` field is the normalized website passed with `--website` or `website=...`. The `queried_country` field is the explicit user-provided country as an uppercase two-letter code, or `not specified` if no country was provided. The extracted `country` field remains separate and is derived from website or registry evidence. The CLI displays website and registry fields in separate tables. The `description` is generated by a dedicated description prompt configured with `ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT`. The `industry` field is selected from the configured industries CSV and may contain multiple comma-separated canonical entries when `ORG_AGENT_MAX_INDUSTRIES` is greater than 1. Fields such as `legal_form` and `country` may appear in both `website_profile` and `registry_profile` because they come from independent sources. The `evidence` entries explain sources and decisions for each profile.
+The `queried_name` field is the original name passed to the CLI or API. The `queried_website` field is the normalized website passed with `--website` or `website=...`. The `queried_country` field is the explicit user-provided country as an uppercase two-letter code, or `not specified` if no country was provided. The extracted `country` field remains separate and is derived from website or registry evidence. The CLI displays website and registry fields in separate tables. The `description` is generated by a dedicated description prompt configured with `ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT`. The `legal_form` field is selected from the configured legal forms CSV using current page text. The `sector` field is selected from the configured sectors CSV. The `company_type` field is selected from the configured company types CSV. The `company_size` field is the extracted or rounded employee count as an integer. The `industry` field is selected from the configured industries CSV and may contain multiple comma-separated canonical entries when `ORG_AGENT_MAX_INDUSTRIES` is greater than 1. Fields such as `legal_form` and `country` may appear in both `website_profile` and `registry_profile` because they come from independent sources. The `evidence` entries explain sources and decisions for each profile.
 
 The experiment evaluator accepts the same country registry input as normal lookups, for example `--country ch`.
 
