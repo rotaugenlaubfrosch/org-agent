@@ -136,6 +136,7 @@ class ContactProfilePatch(BaseModel):
 
 
 class CompanyFactsProfilePatch(BaseModel):
+    address_country: str | None = None
     employees: int | None = None
 
 

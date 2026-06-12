@@ -656,7 +656,7 @@ def test_extract_contact_info_prompt_uses_contact_schema_only() -> None:
     assert "country" not in str(ContactPageExtraction.model_json_schema())
 
 
-def test_extract_company_facts_prompt_extracts_employees_only() -> None:
+def test_extract_company_facts_prompt_extracts_address_country_and_employees() -> None:
     llm = _CapturingStructuredLLM()
     parser = PydanticOutputParser(pydantic_object=CompanyFactsExtraction)
 
@@ -666,7 +666,7 @@ def test_extract_company_facts_prompt_extracts_employees_only() -> None:
             parser,
             "Example Ltd",
             "https://example.com",
-            ["employees"],
+            ["address_country", "employees"],
             WebsitePage(url="https://example.com/about", text="About page text."),
             None,
             "analyze_page",
@@ -675,13 +675,18 @@ def test_extract_company_facts_prompt_extracts_employees_only() -> None:
 
     prompt = llm.messages[-1].content
     assert "Extract only these missing company fact fields" in prompt
+    assert "- address_country" in prompt
     assert "- employees" in prompt
-    assert "only when the page explicitly states employee count" in prompt
+    assert "For address_country, return the country of the organization's headquarters." in prompt
+    assert "only when the page states employee count" in prompt
     assert "Use null for employees if no employee count is stated." in prompt
-    assert "country" not in prompt
-    assert "address" not in str(CompanyFactsExtraction.model_json_schema())
-    assert "phone" not in str(CompanyFactsExtraction.model_json_schema())
-    assert "country" not in str(CompanyFactsExtraction.model_json_schema())
+    fact_properties = CompanyFactsExtraction.model_json_schema()["$defs"][
+        "CompanyFactsProfilePatch"
+    ]["properties"]
+    assert "address" not in fact_properties
+    assert "phone" not in fact_properties
+    assert "country" not in fact_properties
+    assert "address_country" in fact_properties
 
 
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
@@ -698,12 +703,14 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     assert _missing_profile_fields(profile) == [
         "phone",
         "email",
+        "address_country",
     ]
     assert _missing_crawl_fields(profile) == [
         "legal_structure",
         "phone",
         "description",
         "email",
+        "address_country",
     ]
     assert "legal_address" not in _missing_profile_fields(profile)
     assert "official_company_name" not in _missing_profile_fields(profile)
@@ -1019,6 +1026,42 @@ def test_derive_profile_country_from_address_sets_address_country() -> None:
     assert profile.evidence[-1].field == "address_country"
     assert profile.evidence[-1].value == "Liechtenstein"
     assert profile.evidence[-1].source == "agent"
+
+
+def test_derive_profile_country_from_address_overrides_draft_address_country() -> None:
+    profile = OrganizationProfile(
+        queried_name="Hilti Corporation",
+        address_country="Switzerland",
+        address="Feldkircher Strasse 100, Postfach 333, 9494 Schaan, Liechtenstein",
+        evidence=[
+            EvidenceEntry(
+                field="address_country",
+                value="Switzerland",
+                reasoning="Drafted from company facts.",
+            )
+        ],
+    )
+
+    derived_country = _derive_profile_country_from_address(profile)
+
+    assert derived_country == "Liechtenstein"
+    assert profile.address_country == "Liechtenstein"
+    assert [entry.value for entry in profile.evidence if entry.field == "address_country"] == [
+        "Liechtenstein"
+    ]
+
+
+def test_derive_profile_country_from_address_keeps_draft_without_country_signal() -> None:
+    profile = OrganizationProfile(
+        queried_name="Zweifel AG",
+        address_country="Switzerland",
+        address="Regensdorferstrasse 20, 8049 Zürich-Höngg",
+    )
+
+    derived_country = _derive_profile_country_from_address(profile)
+
+    assert derived_country is None
+    assert profile.address_country == "Switzerland"
 
 
 def test_validate_profile_email_keeps_email_present_in_website_pages() -> None:

@@ -52,10 +52,11 @@ EXTRACTABLE_PROFILE_FIELDS = (
     "address",
     "phone",
     "email",
+    "address_country",
     "employees",
 )
 CONTACT_PROFILE_FIELDS = ("address", "phone", "email")
-COMPANY_FACT_PROFILE_FIELDS = ("employees",)
+COMPANY_FACT_PROFILE_FIELDS = ("address_country", "employees")
 
 DESCRIPTION_PROFILE_FIELD = "description"
 LEGAL_STRUCTURE_PROFILE_FIELD = "legal_structure"
@@ -703,7 +704,8 @@ async def _extract_company_facts(
         "Extract only these missing company fact fields from the current page:\n"
         f"{formatted_fields}\n"
         "Do not extract, mention, or fill any fields that are not listed above. "
-        "For employees, return an integer only when the page explicitly states employee count, headcount, or number of employees. "
+        "For address_country, return the country of the organization's headquarters. "
+        "For employees, return an integer only when the page states employee count, headcount, or number of employees. "
         "Use null for employees if no employee count is stated. "
         "Use null for listed fields that are not present on the current page. "
         "Write brief evidence entries for each extracted value. "
@@ -1526,6 +1528,7 @@ def _derive_profile_country_from_address(profile: OrganizationProfile) -> str | 
     if not derived_country or profile.address_country == derived_country:
         return None
     profile.address_country = derived_country
+    profile.evidence = [entry for entry in profile.evidence if entry.field != "address_country"]
     _extend_evidence_dedup(
         profile.evidence,
         [
