@@ -266,7 +266,7 @@ def test_fragment_profile_address_reports_profile_country_fallback() -> None:
     profile = OrganizationProfile(
         queried_name="ETH Zürich",
         address="ETH Zürich, Rämistrasse 101, CH-8092 Zürich",
-        country="Switzerland",
+        address_country="Switzerland",
     )
     llm = _AddressFragmentationLLM('{"address_city": "Zürich"}')
     reports = []
@@ -283,7 +283,7 @@ def test_fragment_profile_address_reports_profile_country_fallback() -> None:
 
     assert reports[0] == (
         "validate_profile",
-        "Address fields country source: extracted profile.country=Switzerland -> ch.",
+        "Address fields country source: extracted profile.address_country=Switzerland -> ch.",
     )
     assert "Therefore, using address fields config:" in reports[1][1]
     assert profile.address_fields == {"address_city": "Zürich"}
@@ -1005,17 +1005,18 @@ def test_country_from_address_does_not_guess_from_city() -> None:
     assert _country_from_address("Regensdorferstrasse 20, 8049 Zürich-Höngg") is None
 
 
-def test_derive_profile_country_from_address_overrides_existing_value() -> None:
+def test_derive_profile_country_from_address_sets_address_country() -> None:
     profile = OrganizationProfile(
         queried_name="Hilti Corporation",
-        country="Switzerland",
         address="Feldkircher Strasse 100, Postfach 333, 9494 Schaan, Liechtenstein",
     )
 
-    _derive_profile_country_from_address(profile)
+    derived_country = _derive_profile_country_from_address(profile)
 
-    assert profile.country == "Liechtenstein"
-    assert profile.evidence[-1].field == "country"
+    assert derived_country == "Liechtenstein"
+    assert profile.address_country == "Liechtenstein"
+    assert profile.country is None
+    assert profile.evidence[-1].field == "address_country"
     assert profile.evidence[-1].value == "Liechtenstein"
     assert profile.evidence[-1].source == "agent"
 

@@ -1102,7 +1102,7 @@ async def _fragment_profile_address(
     if not profile.address:
         return
 
-    config_path, config_reason = _address_fields_config_selection(country, profile.country)
+    config_path, config_reason = _address_fields_config_selection(country, profile.address_country)
     report(progress, scope, config_reason)
     if config_path is None:
         return
@@ -1131,14 +1131,14 @@ async def _fragment_profile_address(
     profile.address_fields = _validated_address_fields(profile.address, extracted, config)
 
 
-def _address_fields_config_path(country: str | None, profile_country: str | None) -> Path | None:
-    config_path, _reason = _address_fields_config_selection(country, profile_country)
+def _address_fields_config_path(country: str | None, profile_address_country: str | None) -> Path | None:
+    config_path, _reason = _address_fields_config_selection(country, profile_address_country)
     return config_path
 
 
 def _address_fields_config_selection(
     country: str | None,
-    profile_country: str | None,
+    profile_address_country: str | None,
 ) -> tuple[Path | None, str]:
     explicit_country = (country or "").strip()
     if explicit_country:
@@ -1162,26 +1162,26 @@ def _address_fields_config_selection(
             f"config exists for country: {country_code}.",
         )
 
-    extracted_country = (profile_country or "").strip()
+    extracted_country = (profile_address_country or "").strip()
     if extracted_country:
         country_code = _country_code(extracted_country)
         if country_code is None:
             return (
                 None,
                 "Skipped address fragmentation because extracted "
-                f"profile.country={extracted_country} could not be resolved to a country code.",
+                f"profile.address_country={extracted_country} could not be resolved to a country code.",
             )
         path = _address_fields_path(country_code)
         if path.exists():
             return (
                 path,
                 "Address fields country source: extracted "
-                f"profile.country={extracted_country} -> {country_code}.",
+                f"profile.address_country={extracted_country} -> {country_code}.",
             )
         return (
             None,
             "Skipped address fragmentation because extracted "
-            f"profile.country={extracted_country} resolved to {country_code}, but no address fields "
+            f"profile.address_country={extracted_country} resolved to {country_code}, but no address fields "
             f"config exists for country: {country_code}.",
         )
 
@@ -1514,22 +1514,30 @@ def _normalize_profile_country(profile: OrganizationProfile) -> None:
             entry.value = _normalize_country(entry.value)
 
 
-def _derive_profile_country_from_address(profile: OrganizationProfile) -> None:
+def _normalize_profile_address_country(profile: OrganizationProfile) -> None:
+    profile.address_country = _normalize_country(profile.address_country)
+    for entry in profile.evidence:
+        if entry.field == "address_country":
+            entry.value = _normalize_country(entry.value)
+
+
+def _derive_profile_country_from_address(profile: OrganizationProfile) -> str | None:
     derived_country = _country_from_address(profile.address)
-    if not derived_country or profile.country == derived_country:
-        return
-    profile.country = derived_country
+    if not derived_country or profile.address_country == derived_country:
+        return None
+    profile.address_country = derived_country
     _extend_evidence_dedup(
         profile.evidence,
         [
             EvidenceEntry(
-                field="country",
+                field="address_country",
                 value=derived_country,
                 source="agent",
                 reasoning="Derived country from the extracted postal address.",
             )
         ],
     )
+    return derived_country
 
 
 def _country_from_address(address: str | None) -> str | None:

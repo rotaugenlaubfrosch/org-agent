@@ -30,6 +30,7 @@ def test_settings_accepts_project_scoped_ollama_url(monkeypatch, tmp_path: Path)
     monkeypatch.delenv("ORG_AGENT_SECTORS_CSV", raising=False)
     monkeypatch.delenv("ORG_AGENT_COMPANY_TYPES_CSV", raising=False)
     monkeypatch.delenv("ORG_AGENT_LEGAL_STRUCTURES_CSV", raising=False)
+    monkeypatch.delenv("ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT", raising=False)
 
     settings = Settings()
 

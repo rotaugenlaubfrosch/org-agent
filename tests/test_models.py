@@ -29,6 +29,7 @@ def test_organization_profile_accepts_expected_fields() -> None:
         legal_address="Registry Street 10",
         phone="+1 555 0100",
         email="info@example.com",
+        address_country="United States",
         country="United States",
         region="California",
         evidence=[
@@ -70,6 +71,7 @@ def test_profile_display_fields_match_profile_scalar_fields() -> None:
         "legal_address",
         "phone",
         "email",
+        "address_country",
         "country",
         "region",
     )
@@ -81,7 +83,7 @@ def test_lookup_result_separates_website_and_registry_profiles() -> None:
     result = LookupResult(
         website_profile=OrganizationProfile(
             queried_name="Example Ltd",
-            country="Website Country",
+            address_country="Website Country",
         ),
         registry_profile=OrganizationProfile(
             queried_name="Example Ltd",
@@ -89,7 +91,7 @@ def test_lookup_result_separates_website_and_registry_profiles() -> None:
         ),
     )
 
-    assert result.website_profile.country == "Website Country"
+    assert result.website_profile.address_country == "Website Country"
     assert result.registry_profile is not None
     assert result.registry_profile.country == "Registry Country"
 
@@ -111,7 +113,7 @@ def test_profile_display_field_groups_separate_website_and_registry_fields() -> 
         "address",
         "phone",
         "email",
-        "country",
+        "address_country",
     )
     assert registry_fields == REGISTRY_PROFILE_DISPLAY_FIELDS
     assert registry_fields == (

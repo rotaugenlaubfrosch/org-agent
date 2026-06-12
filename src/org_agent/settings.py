@@ -10,12 +10,11 @@ from org_agent.registry import validate_country_code
 
 
 DEFAULT_DESCRIPTION_SYSTEM_PROMPT = (
-    "Formuliere eine neutrale, sachliche Kurzbeschreibung auf Deutsch für eine "
-    "Unternehmensdatenbank. Die Beschreibung muss zwingend in der Form beginnen: "
-    "'[Account Name] beschäftigt sich mit …'. Verzichte auf werbliche Sprache und "
-    "Superlative. Nenne sachlich, womit sich das Unternehmen oder die Organisation "
-    "befasst. Die Ausgabe muss zwingend in deutscher Sprache sein. Gebe ausschliesslich "
-    "die Beschreibung aus, ohne Kommentare oder Zusätze ."
+    "Write a neutral, factual short description in English for an organization database. "
+    "The description must begin exactly with: '[Account Name] is engaged in ...'. "
+    "Avoid promotional language and superlatives. State factually what the company or "
+    "organization does. The output must be in English. Output only the description, "
+    "without comments or additions."
 )
 
 DEFAULT_INDUSTRIES_CSV = str(Path(__file__).resolve().parent / "data" / "industries.csv")
