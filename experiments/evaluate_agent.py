@@ -62,12 +62,24 @@ def main() -> None:
         table.add_column("Agent")
 
         website_fields, registry_fields = profile_display_field_groups()
+        expected_address_fields = expected.get("address_fields", {})
         for field in website_fields:
             expected_value = expected.get(field, MISSING_GROUND_TRUTH)
             actual_value = website_prediction.get(field)
             table.add_row(field, _format_value(expected_value), _format_value(actual_value))
             if field == "queried_country":
                 table.add_section()
+            if field == "address":
+                for address_field, address_value in result.website_profile.address_fields.items():
+                    expected_address_value = expected_address_fields.get(
+                        address_field,
+                        MISSING_GROUND_TRUTH,
+                    )
+                    table.add_row(
+                        f"  {address_field}",
+                        _format_value(expected_address_value),
+                        _format_value(address_value),
+                    )
         table.add_section()
         for field in registry_fields:
             expected_value = expected.get(field, MISSING_GROUND_TRUTH)
