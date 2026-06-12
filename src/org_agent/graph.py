@@ -648,7 +648,9 @@ async def _extract_contact_info(
     progress: ProgressCallback | None,
     scope: str,
 ) -> ContactPageExtraction:
-    formatted_fields = "\n".join(f"- {field}" for field in requested_fields)
+    formatted_fields = "\n".join(
+        f"- {_contact_prompt_field_label(field)}" for field in requested_fields
+    )
     prompt = (
         "You are extracting contact information about an organization from a website page.\n"
         "Extract only these missing contact fields from the current page:\n"
@@ -686,6 +688,10 @@ async def _extract_contact_info(
             progress=progress,
             scope=scope,
         )
+
+
+def _contact_prompt_field_label(field: str) -> str:
+    return "main address" if field == "address" else field
 
 
 async def _extract_company_facts(

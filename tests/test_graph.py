@@ -648,10 +648,14 @@ def test_extract_contact_info_prompt_uses_contact_schema_only() -> None:
 
     prompt = llm.messages[-1].content
     assert "Extract only these missing contact fields" in prompt
-    assert "- address" in prompt
+    assert "- main address" in prompt
+    assert "- address" not in prompt
     assert "- phone" in prompt
     assert "- email" in prompt
     assert "Do not infer contact details." in prompt
+    assert "address" in ContactPageExtraction.model_json_schema()["$defs"][
+        "ContactProfilePatch"
+    ]["properties"]
     assert "employees" not in str(ContactPageExtraction.model_json_schema())
     assert "country" not in str(ContactPageExtraction.model_json_schema())
 
