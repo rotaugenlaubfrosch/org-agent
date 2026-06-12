@@ -20,6 +20,7 @@ PROFILE_DISPLAY_FIELDS = (
     "legal_address",
     "phone",
     "email",
+    "address_country",
     "country",
     "region",
 )
@@ -45,7 +46,7 @@ WEBSITE_PROFILE_DISPLAY_FIELDS = (
     "address",
     "phone",
     "email",
-    "country",
+    "address_country",
 )
 
 REGISTRY_PROFILE_DISPLAY_FIELDS = (
@@ -91,6 +92,7 @@ class OrganizationProfile(BaseModel):
     legal_address: str | None = None
     phone: str | None = None
     email: str | None = None
+    address_country: str | None = None
     country: str | None = None
     region: str | None = None
     evidence: list[EvidenceEntry] = Field(default_factory=list)
@@ -124,7 +126,16 @@ class WebsiteOrganizationProfilePatch(BaseModel):
     address: str | None = None
     phone: str | None = None
     email: str | None = None
-    country: str | None = None
+    employees: int | None = None
+
+
+class ContactProfilePatch(BaseModel):
+    address: str | None = None
+    phone: str | None = None
+    email: str | None = None
+
+
+class CompanyFactsProfilePatch(BaseModel):
     employees: int | None = None
 
 
@@ -215,6 +226,36 @@ class PageExtraction(BaseModel):
     )
     reasoning: str = Field(
         description="Brief explanation of what was extracted and from where on the page.",
+    )
+
+
+class ContactPageExtraction(BaseModel):
+    profile_patch: ContactProfilePatch = Field(
+        default_factory=ContactProfilePatch,
+        description="Contact fields that can be filled or updated from the current page.",
+    )
+    evidence: list[EvidenceEntry] = Field(default_factory=list)
+    missing_fields: list[str] = Field(
+        default_factory=list,
+        description="Contact fields still missing after this extraction.",
+    )
+    reasoning: str = Field(
+        description="Brief explanation of what contact data was extracted and from where on the page.",
+    )
+
+
+class CompanyFactsExtraction(BaseModel):
+    profile_patch: CompanyFactsProfilePatch = Field(
+        default_factory=CompanyFactsProfilePatch,
+        description="Company fact fields that can be filled or updated from the current page.",
+    )
+    evidence: list[EvidenceEntry] = Field(default_factory=list)
+    missing_fields: list[str] = Field(
+        default_factory=list,
+        description="Company fact fields still missing after this extraction.",
+    )
+    reasoning: str = Field(
+        description="Brief explanation of what company facts were extracted and from where on the page.",
     )
 
 

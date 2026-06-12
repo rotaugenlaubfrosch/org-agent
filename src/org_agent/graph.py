@@ -18,6 +18,8 @@ from pydantic import BaseModel, ValidationError
 from org_agent.llm import build_chat_model
 from org_agent.models import (
     AgentState,
+    CompanyFactsExtraction,
+    ContactPageExtraction,
     CrawlDecision,
     CrawlNode,
     CrawlTarget,
@@ -50,9 +52,10 @@ EXTRACTABLE_PROFILE_FIELDS = (
     "address",
     "phone",
     "email",
-    "country",
     "employees",
 )
+CONTACT_PROFILE_FIELDS = ("address", "phone", "email")
+COMPANY_FACT_PROFILE_FIELDS = ("employees",)
 
 DESCRIPTION_PROFILE_FIELD = "description"
 LEGAL_STRUCTURE_PROFILE_FIELD = "legal_structure"
@@ -86,7 +89,8 @@ def build_graph(
     progress: ProgressCallback | None = None,
 ):
     llm = build_chat_model(settings)
-    page_extraction_parser = PydanticOutputParser(pydantic_object=PageExtraction)
+    contact_extraction_parser = PydanticOutputParser(pydantic_object=ContactPageExtraction)
+    company_facts_parser = PydanticOutputParser(pydantic_object=CompanyFactsExtraction)
     crawl_decision_parser = PydanticOutputParser(pydantic_object=CrawlDecision)
 
     async def initialize(state: AgentState) -> AgentState:
@@ -230,25 +234,50 @@ def build_graph(
         if not state.current_page or state.profile is None:
             return state
         requested_fields = _missing_profile_fields(state.profile)
+        extraction_reasoning: list[str] = []
         if requested_fields:
-            extraction = await _extract_page_info(
-                llm,
-                page_extraction_parser,
-                state.input.name,
-                state.profile.queried_website,
-                requested_fields,
-                state.current_page,
-                progress,
-                "analyze_page",
-            )
-            _keep_requested_extraction_fields(extraction, requested_fields)
-            _set_website_evidence_source(extraction.evidence, state.current_page.url)
+            contact_fields = [field for field in requested_fields if field in CONTACT_PROFILE_FIELDS]
+            if contact_fields:
+                contact_extraction = await _extract_contact_info(
+                    llm,
+                    contact_extraction_parser,
+                    state.input.name,
+                    state.profile.queried_website,
+                    contact_fields,
+                    state.current_page,
+                    progress,
+                    "analyze_page",
+                )
+                _keep_requested_extraction_fields(contact_extraction, contact_fields)
+                _set_website_evidence_source(contact_extraction.evidence, state.current_page.url)
+                filled_fields = _merge_profile_patch(state.profile, contact_extraction.profile_patch)
+                _report_filled_fields(progress, "analyze_page", filled_fields)
+                _extend_evidence_dedup(state.profile.evidence, contact_extraction.evidence)
+                extraction_reasoning.append(contact_extraction.reasoning)
+
+            company_fact_fields = [
+                field for field in requested_fields if field in COMPANY_FACT_PROFILE_FIELDS
+            ]
+            if company_fact_fields:
+                facts_extraction = await _extract_company_facts(
+                    llm,
+                    company_facts_parser,
+                    state.input.name,
+                    state.profile.queried_website,
+                    company_fact_fields,
+                    state.current_page,
+                    progress,
+                    "analyze_page",
+                )
+                _keep_requested_extraction_fields(facts_extraction, company_fact_fields)
+                _set_website_evidence_source(facts_extraction.evidence, state.current_page.url)
+                filled_fields = _merge_profile_patch(state.profile, facts_extraction.profile_patch)
+                _report_filled_fields(progress, "analyze_page", filled_fields)
+                _extend_evidence_dedup(state.profile.evidence, facts_extraction.evidence)
+                extraction_reasoning.append(facts_extraction.reasoning)
         else:
-            extraction = PageExtraction(reasoning="No missing profile fields remain before this page.")
-        filled_fields = _merge_profile_patch(state.profile, extraction.profile_patch)
-        _report_filled_fields(progress, "analyze_page", filled_fields)
-        _extend_evidence_dedup(state.profile.evidence, extraction.evidence)
-        report(progress, "analyze_page", f"Extraction: {extraction.reasoning}")
+            extraction_reasoning.append("No missing profile fields remain before this page.")
+        report(progress, "analyze_page", f"Extraction: {' '.join(extraction_reasoning)}")
 
         if state.profile.description in {None, ""}:
             description = await _extract_description(
@@ -372,8 +401,8 @@ def build_graph(
         selected_urls = _normalize_selected_urls(decision.selected_urls[:3], state.candidate_links)
         _report_selected_links(progress, "analyze_page", state.candidate_links, selected_urls)
         analysis = PageAnalysis(
-            profile_patch=OrganizationProfilePatch.model_validate(extraction.profile_patch.model_dump()),
-            evidence=extraction.evidence,
+            profile_patch=OrganizationProfilePatch(),
+            evidence=[],
             missing_fields=remaining_missing_fields,
             selected_urls=decision.selected_urls[:3],
             is_complete=decision.is_complete,
@@ -381,7 +410,7 @@ def build_graph(
         )
         state.page_analysis = analysis
         node = _crawl_node(state, state.current_crawl_node_id)
-        node.reason = extraction.reasoning
+        node.reason = " ".join(extraction_reasoning)
         _report_page_analysis(progress, "analyze_page", analysis)
 
         queued_selected_link = False
@@ -426,11 +455,26 @@ def build_graph(
             return state
         report(progress, "validate_profile", "Validating extracted profile...")
 
+        address_country_before = state.profile.address_country
         country_before = state.profile.country
         email_before = state.profile.email
         had_website_pages = bool(state.website_pages)
 
+        derived_address_country = _derive_profile_country_from_address(state.profile)
+        if derived_address_country:
+            report(
+                progress,
+                "validate_profile",
+                f'Extracted country "{derived_address_country}" from address: {state.profile.address}',
+            )
+        _normalize_profile_address_country(state.profile)
         _normalize_profile_country(state.profile)
+        if address_country_before != state.profile.address_country and not derived_address_country:
+            report(
+                progress,
+                "validate_profile",
+                f"Normalized address_country: {address_country_before} -> {state.profile.address_country}",
+            )
         if country_before != state.profile.country:
             report(
                 progress,
@@ -591,6 +635,107 @@ async def _extract_page_info(
     except Exception as exc:  # noqa: BLE001
         report(progress, scope, f"Structured extraction failed; retrying with JSON prompt. {exc}")
         return await _retry_json_parse(llm, PageExtraction, parser, messages, progress=progress, scope=scope)
+
+
+async def _extract_contact_info(
+    llm: BaseChatModel,
+    parser: PydanticOutputParser,
+    organization_name: str,
+    website: str | None,
+    requested_fields: list[str],
+    current_page: WebsitePage,
+    progress: ProgressCallback | None,
+    scope: str,
+) -> ContactPageExtraction:
+    formatted_fields = "\n".join(f"- {field}" for field in requested_fields)
+    prompt = (
+        "You are extracting contact information about an organization from a website page.\n"
+        "Extract only these missing contact fields from the current page:\n"
+        f"{formatted_fields}\n"
+        "Do not extract, mention, or fill any fields that are not listed above. "
+        "Use null for listed fields that are not explicitly present on the current page. "
+        "Do not infer contact details. "
+        "Write brief evidence entries for each extracted value. "
+        "Do not summarize the page. "
+        "If no requested contact fields are present, set reasoning to exactly: "
+        "No requested contact fields found. "
+        "Otherwise, write a one-sentence factual explanation as reasoning.\n"
+        f"{parser.get_format_instructions()}\n\n"
+        f"Organization name: {organization_name}\n\n"
+        f"Known website: {website or 'unknown'}\n\n"
+        f"Current page:\n{current_page.model_dump_json(indent=2)}"
+    )
+    messages = [
+        SystemMessage(
+            content="You extract factual organization contact data from web pages. Return structured output only."
+        ),
+        HumanMessage(content=prompt),
+    ]
+    try:
+        structured_llm = llm.with_structured_output(ContactPageExtraction)
+        result = await structured_llm.ainvoke(messages)
+        return _parse_structured_result(result, ContactPageExtraction, parser)
+    except Exception as exc:  # noqa: BLE001
+        report(progress, scope, f"Structured contact extraction failed; retrying with JSON prompt. {exc}")
+        return await _retry_json_parse(
+            llm,
+            ContactPageExtraction,
+            parser,
+            messages,
+            progress=progress,
+            scope=scope,
+        )
+
+
+async def _extract_company_facts(
+    llm: BaseChatModel,
+    parser: PydanticOutputParser,
+    organization_name: str,
+    website: str | None,
+    requested_fields: list[str],
+    current_page: WebsitePage,
+    progress: ProgressCallback | None,
+    scope: str,
+) -> CompanyFactsExtraction:
+    formatted_fields = "\n".join(f"- {field}" for field in requested_fields)
+    prompt = (
+        "You are extracting factual company facts from a website page.\n"
+        "Extract only these missing company fact fields from the current page:\n"
+        f"{formatted_fields}\n"
+        "Do not extract, mention, or fill any fields that are not listed above. "
+        "For employees, return an integer only when the page explicitly states employee count, headcount, or number of employees. "
+        "Use null for employees if no employee count is stated. "
+        "Use null for listed fields that are not present on the current page. "
+        "Write brief evidence entries for each extracted value. "
+        "Do not summarize the page. "
+        "If no requested company fact fields are present, set reasoning to exactly: "
+        "No requested company fact fields found. "
+        "Otherwise, write a one-sentence factual explanation as reasoning.\n"
+        f"{parser.get_format_instructions()}\n\n"
+        f"Organization name: {organization_name}\n\n"
+        f"Known website: {website or 'unknown'}\n\n"
+        f"Current page:\n{current_page.model_dump_json(indent=2)}"
+    )
+    messages = [
+        SystemMessage(
+            content="You extract factual organization company facts from web pages. Return structured output only."
+        ),
+        HumanMessage(content=prompt),
+    ]
+    try:
+        structured_llm = llm.with_structured_output(CompanyFactsExtraction)
+        result = await structured_llm.ainvoke(messages)
+        return _parse_structured_result(result, CompanyFactsExtraction, parser)
+    except Exception as exc:  # noqa: BLE001
+        report(progress, scope, f"Structured company facts extraction failed; retrying with JSON prompt. {exc}")
+        return await _retry_json_parse(
+            llm,
+            CompanyFactsExtraction,
+            parser,
+            messages,
+            progress=progress,
+            scope=scope,
+        )
 
 
 async def _extract_description(
@@ -1367,6 +1512,55 @@ def _normalize_profile_country(profile: OrganizationProfile) -> None:
     for entry in profile.evidence:
         if entry.field == "country":
             entry.value = _normalize_country(entry.value)
+
+
+def _derive_profile_country_from_address(profile: OrganizationProfile) -> None:
+    derived_country = _country_from_address(profile.address)
+    if not derived_country or profile.country == derived_country:
+        return
+    profile.country = derived_country
+    _extend_evidence_dedup(
+        profile.evidence,
+        [
+            EvidenceEntry(
+                field="country",
+                value=derived_country,
+                source="agent",
+                reasoning="Derived country from the extracted postal address.",
+            )
+        ],
+    )
+
+
+def _country_from_address(address: str | None) -> str | None:
+    if not address:
+        return None
+
+    text = address.strip()
+    if not text:
+        return None
+
+    for token in re.split(r"[,;\n]", text):
+        country = _explicit_country_token(token)
+        if country:
+            return country
+
+    for match in re.finditer(r"\b([A-Z]{2})[- ](?=\d{3,6}\b)", text):
+        country = _explicit_country_token(match.group(1))
+        if country:
+            return country
+
+    return None
+
+
+def _explicit_country_token(value: str | None) -> str | None:
+    token = (value or "").strip()
+    if not token:
+        return None
+    try:
+        return pycountry.countries.lookup(token).name
+    except LookupError:
+        return None
 
 
 def _normalize_country(value: str | None) -> str | None:

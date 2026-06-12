@@ -11,7 +11,11 @@ from org_agent.graph import (
     NO_REGISTRY_REGISTRATION_ID_MESSAGE,
     _fill_registry_only_field_messages,
     _extract_company_type,
+    _extract_company_facts,
+    _extract_contact_info,
     _extract_industries,
+    _country_from_address,
+    _derive_profile_country_from_address,
     _extract_legal_structure,
     _extract_page_info,
     _extract_sector,
@@ -49,6 +53,7 @@ from org_agent.graph import (
 )
 from org_agent.models import (
     AgentState,
+    CompanyFactsExtraction,
     CrawlDecision,
     CrawlTarget,
     EvidenceEntry,
@@ -56,6 +61,7 @@ from org_agent.models import (
     OrganizationProfile,
     OrganizationProfilePatch,
     PageAnalysis,
+    ContactPageExtraction,
     PageExtraction,
     RegistryResult,
     WebsiteOrganizationProfilePatch,
@@ -71,13 +77,15 @@ class _CrawlSettings:
 class _CapturingStructuredLLM:
     def __init__(self) -> None:
         self.messages = None
+        self.model_type = PageExtraction
 
-    def with_structured_output(self, _model_type):
+    def with_structured_output(self, model_type):
+        self.model_type = model_type
         return self
 
     async def ainvoke(self, messages):
         self.messages = messages
-        return PageExtraction(reasoning="No values on page.")
+        return self.model_type(reasoning="No values on page.")
 
 
 class _AddressFragmentationLLM:
@@ -621,6 +629,61 @@ def test_extract_page_info_prompt_includes_employees_guidance() -> None:
     assert "estimate the number of employees as an integer" in prompt
 
 
+def test_extract_contact_info_prompt_uses_contact_schema_only() -> None:
+    llm = _CapturingStructuredLLM()
+    parser = PydanticOutputParser(pydantic_object=ContactPageExtraction)
+
+    asyncio.run(
+        _extract_contact_info(
+            llm,
+            parser,
+            "Example Ltd",
+            "https://example.com",
+            ["address", "phone", "email"],
+            WebsitePage(url="https://example.com/contact", text="Contact page text."),
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[-1].content
+    assert "Extract only these missing contact fields" in prompt
+    assert "- address" in prompt
+    assert "- phone" in prompt
+    assert "- email" in prompt
+    assert "Do not infer contact details." in prompt
+    assert "employees" not in str(ContactPageExtraction.model_json_schema())
+    assert "country" not in str(ContactPageExtraction.model_json_schema())
+
+
+def test_extract_company_facts_prompt_extracts_employees_only() -> None:
+    llm = _CapturingStructuredLLM()
+    parser = PydanticOutputParser(pydantic_object=CompanyFactsExtraction)
+
+    asyncio.run(
+        _extract_company_facts(
+            llm,
+            parser,
+            "Example Ltd",
+            "https://example.com",
+            ["employees"],
+            WebsitePage(url="https://example.com/about", text="About page text."),
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[-1].content
+    assert "Extract only these missing company fact fields" in prompt
+    assert "- employees" in prompt
+    assert "only when the page explicitly states employee count" in prompt
+    assert "Use null for employees if no employee count is stated." in prompt
+    assert "country" not in prompt
+    assert "address" not in str(CompanyFactsExtraction.model_json_schema())
+    assert "phone" not in str(CompanyFactsExtraction.model_json_schema())
+    assert "country" not in str(CompanyFactsExtraction.model_json_schema())
+
+
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
@@ -635,14 +698,12 @@ def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
     assert _missing_profile_fields(profile) == [
         "phone",
         "email",
-        "country",
     ]
     assert _missing_crawl_fields(profile) == [
         "legal_structure",
         "phone",
         "description",
         "email",
-        "country",
     ]
     assert "legal_address" not in _missing_profile_fields(profile)
     assert "official_company_name" not in _missing_profile_fields(profile)
@@ -660,6 +721,7 @@ def test_page_extraction_schema_does_not_prompt_for_legal_address() -> None:
     assert "sector" not in patch_properties
     assert "company_type" not in patch_properties
     assert "employees" in patch_properties
+    assert "country" not in patch_properties
     assert "legal_address" not in str(schema)
     assert "official_company_name" not in str(schema)
     assert "queried_name" not in str(schema)
@@ -673,7 +735,6 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
         profile_patch=WebsiteOrganizationProfilePatch(
             address="Example Street 1",
             phone="+1 555 0100",
-            country="Switzerland",
         ),
         evidence=[
             EvidenceEntry(
@@ -683,9 +744,8 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
             ),
             EvidenceEntry(field="address", value="Example Street 1", reasoning="Found on page."),
             EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found on page."),
-            EvidenceEntry(field="country", value="Switzerland", reasoning="Found on page."),
         ],
-        missing_fields=["address", "phone", "email", "country"],
+        missing_fields=["address", "phone", "email"],
         reasoning="Extracted fields.",
     )
 
@@ -693,7 +753,6 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
 
     assert extraction.profile_patch.address == "Example Street 1"
     assert extraction.profile_patch.phone is None
-    assert extraction.profile_patch.country is None
     assert [entry.field for entry in extraction.evidence] == ["address"]
     assert extraction.missing_fields == ["address", "email"]
 
@@ -928,6 +987,37 @@ def test_normalize_profile_country_updates_profile_and_evidence() -> None:
     assert profile.country == "Switzerland"
     assert profile.evidence[0].value == "Switzerland"
     assert profile.evidence[1].value == "info@example.com"
+
+
+def test_country_from_address_uses_explicit_country_name() -> None:
+    assert (
+        _country_from_address("Feldkircher Strasse 100, Postfach 333, 9494 Schaan, Liechtenstein")
+        == "Liechtenstein"
+    )
+
+
+def test_country_from_address_uses_postal_country_prefix() -> None:
+    assert _country_from_address("Feldkircher Strasse 100, LI-9494 Schaan") == "Liechtenstein"
+    assert _country_from_address("Regensdorferstrasse 20, CH-8049 Zürich-Höngg") == "Switzerland"
+
+
+def test_country_from_address_does_not_guess_from_city() -> None:
+    assert _country_from_address("Regensdorferstrasse 20, 8049 Zürich-Höngg") is None
+
+
+def test_derive_profile_country_from_address_overrides_existing_value() -> None:
+    profile = OrganizationProfile(
+        queried_name="Hilti Corporation",
+        country="Switzerland",
+        address="Feldkircher Strasse 100, Postfach 333, 9494 Schaan, Liechtenstein",
+    )
+
+    _derive_profile_country_from_address(profile)
+
+    assert profile.country == "Liechtenstein"
+    assert profile.evidence[-1].field == "country"
+    assert profile.evidence[-1].value == "Liechtenstein"
+    assert profile.evidence[-1].source == "agent"
 
 
 def test_validate_profile_email_keeps_email_present_in_website_pages() -> None:
