@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import asyncio
 from csv import reader as csv_reader
 from datetime import UTC, datetime
 from pathlib import Path
@@ -66,6 +67,7 @@ INDUSTRY_PROFILE_FIELD = "industry"
 LINK_SELECTION_MAX_CANDIDATES = 25
 ADDRESS_FIELD_PREFIX = "address_"
 LLM_LIST_SELECTION_MISMATCH = "LLM response did not match list elements."
+LLM_CALL_TIMEOUT_SECONDS = 20.0
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
@@ -631,7 +633,15 @@ async def _extract_page_info(
     ]
     try:
         structured_llm = llm.with_structured_output(PageExtraction)
-        result = await structured_llm.ainvoke(messages)
+        result = await _ainvoke_llm_with_timeout(
+            structured_llm,
+            messages,
+            progress,
+            scope,
+            "page extraction",
+        )
+        if result is None:
+            return PageExtraction(reasoning="LLM timed out during page extraction.")
         return _parse_structured_result(result, PageExtraction, parser)
     except Exception as exc:  # noqa: BLE001
         report(progress, scope, f"Structured extraction failed; retrying with JSON prompt. {exc}")
@@ -676,7 +686,15 @@ async def _extract_contact_info(
     ]
     try:
         structured_llm = llm.with_structured_output(ContactPageExtraction)
-        result = await structured_llm.ainvoke(messages)
+        result = await _ainvoke_llm_with_timeout(
+            structured_llm,
+            messages,
+            progress,
+            scope,
+            "contact extraction",
+        )
+        if result is None:
+            return ContactPageExtraction(reasoning="LLM timed out during contact extraction.")
         return _parse_structured_result(result, ContactPageExtraction, parser)
     except Exception as exc:  # noqa: BLE001
         report(progress, scope, f"Structured contact extraction failed; retrying with JSON prompt. {exc}")
@@ -732,7 +750,15 @@ async def _extract_company_facts(
     ]
     try:
         structured_llm = llm.with_structured_output(CompanyFactsExtraction)
-        result = await structured_llm.ainvoke(messages)
+        result = await _ainvoke_llm_with_timeout(
+            structured_llm,
+            messages,
+            progress,
+            scope,
+            "company facts extraction",
+        )
+        if result is None:
+            return CompanyFactsExtraction(reasoning="LLM timed out during company facts extraction.")
         return _parse_structured_result(result, CompanyFactsExtraction, parser)
     except Exception as exc:  # noqa: BLE001
         report(progress, scope, f"Structured company facts extraction failed; retrying with JSON prompt. {exc}")
@@ -760,7 +786,9 @@ async def _extract_description(
         HumanMessage(content=current_page.text),
     ]
     report(progress, scope, "Calling LLM for description...")
-    response = await llm.ainvoke(messages)
+    response = await _ainvoke_llm_with_timeout(llm, messages, progress, scope, "description")
+    if response is None:
+        return ""
     return str(response.content)
 
 
@@ -947,7 +975,9 @@ async def _select_single_candidate(
     scope: str,
 ) -> str | None:
     messages = _fixed_list_selection_messages(prompt)
-    response = await llm.ainvoke(messages)
+    response = await _ainvoke_llm_with_timeout(llm, messages, progress, scope, f"{field} selection")
+    if response is None:
+        return None
     response_text = _response_text(response)
     selected = _parse_single_candidate_response(response_text, candidates)
     if selected != LLM_LIST_SELECTION_MISMATCH:
@@ -959,7 +989,15 @@ async def _select_single_candidate(
         f"LLM {field} response did not match list elements; retrying once. "
         f"Response: {_truncate_progress_value(response_text, 120)}",
     )
-    retry_response = await llm.ainvoke(messages)
+    retry_response = await _ainvoke_llm_with_timeout(
+        llm,
+        messages,
+        progress,
+        scope,
+        f"{field} selection retry",
+    )
+    if retry_response is None:
+        return None
     retry_response_text = _response_text(retry_response)
     retry_selected = _parse_single_candidate_response(retry_response_text, candidates)
     if retry_selected != LLM_LIST_SELECTION_MISMATCH:
@@ -984,7 +1022,9 @@ async def _select_multiple_candidates(
     scope: str,
 ) -> list[str]:
     messages = _fixed_list_selection_messages(prompt)
-    response = await llm.ainvoke(messages)
+    response = await _ainvoke_llm_with_timeout(llm, messages, progress, scope, f"{field} selection")
+    if response is None:
+        return []
     selected = _parse_multiple_candidate_response(_response_text(response), candidates, max_count)
     if selected != LLM_LIST_SELECTION_MISMATCH:
         return selected
@@ -995,7 +1035,15 @@ async def _select_multiple_candidates(
         f"LLM {field} response did not match list elements; retrying once. "
         f"Response: {_truncate_progress_value(_response_text(response), 120)}",
     )
-    retry_response = await llm.ainvoke(messages)
+    retry_response = await _ainvoke_llm_with_timeout(
+        llm,
+        messages,
+        progress,
+        scope,
+        f"{field} selection retry",
+    )
+    if retry_response is None:
+        return []
     retry_selected = _parse_multiple_candidate_response(
         _response_text(retry_response),
         candidates,
@@ -1018,6 +1066,20 @@ def _fixed_list_selection_messages(prompt: str) -> list:
         SystemMessage(content="You choose exact values from candidate lists."),
         HumanMessage(content=prompt),
     ]
+
+
+async def _ainvoke_llm_with_timeout(
+    llm: Any,
+    messages: list,
+    progress: ProgressCallback | None,
+    scope: str,
+    label: str,
+) -> object | None:
+    try:
+        return await asyncio.wait_for(llm.ainvoke(messages), timeout=LLM_CALL_TIMEOUT_SECONDS)
+    except TimeoutError:
+        report(progress, scope, f"LLM timed out after 20 seconds: {label}.")
+        return None
 
 
 def _response_text(response: object) -> str:
@@ -1124,7 +1186,15 @@ async def _fragment_profile_address(
         HumanMessage(content=prompt),
     ]
     report(progress, scope, "Calling LLM for address fragmentation...")
-    response = await _address_fragmentation_llm(llm).ainvoke(messages)
+    response = await _ainvoke_llm_with_timeout(
+        _address_fragmentation_llm(llm),
+        messages,
+        progress,
+        scope,
+        "address fragmentation",
+    )
+    if response is None:
+        return
     try:
         extracted = _parse_address_fragmentation_response(response)
     except ValueError as exc:
@@ -1404,7 +1474,21 @@ async def _select_next_links(
     try:
         report(progress, scope, "Calling LLM for link selection...")
         structured_llm = _link_selection_llm(llm)
-        result = await structured_llm.ainvoke(messages)
+        result = await _ainvoke_llm_with_timeout(
+            structured_llm,
+            messages,
+            progress,
+            scope,
+            "link selection",
+        )
+        if result is None:
+            decision = CrawlDecision(
+                is_complete=False,
+                reasoning="LLM timed out during link selection.",
+            )
+            decision.selected_urls = []
+            report(progress, scope, "LLM link selection returned 0 URL(s).")
+            return decision
         decision = _parse_crawl_decision_result(result, parser)
     except Exception as exc:  # noqa: BLE001
         report(progress, scope, f"Structured link selection failed; retrying with JSON prompt. {exc}")
@@ -1439,12 +1523,15 @@ async def _retry_json_parse(
     progress: ProgressCallback | None = None,
     scope: str = "analyze_page",
 ) -> StructuredModel:
-    response = await llm.ainvoke(messages)
+    response = await _ainvoke_llm_with_timeout(llm, messages, progress, scope, "JSON retry")
+    if response is None:
+        return _timeout_fallback_model(model_type, "JSON retry")
     try:
         return _parse_structured_result(response, model_type, parser)
     except OutputParserException:
         report(progress, scope, "Repairing invalid JSON response...")
-        repair_response = await llm.ainvoke(
+        repair_response = await _ainvoke_llm_with_timeout(
+            llm,
             [
                 SystemMessage(
                     content=(
@@ -1458,9 +1545,21 @@ async def _retry_json_parse(
                         f"Previous answer:\n{response.content}"
                     )
                 ),
-            ]
+            ],
+            progress,
+            scope,
+            "JSON repair",
         )
+        if repair_response is None:
+            return _timeout_fallback_model(model_type, "JSON repair")
         return _parse_structured_result(repair_response, model_type, parser)
+
+
+def _timeout_fallback_model(model_type: type[StructuredModel], label: str) -> StructuredModel:
+    reasoning = f"LLM timed out during {label}."
+    if model_type is CrawlDecision:
+        return CrawlDecision(is_complete=False, reasoning=reasoning)  # type: ignore[return-value]
+    return model_type(reasoning=reasoning)
 
 
 def _parse_structured_result(

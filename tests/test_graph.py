@@ -13,6 +13,7 @@ from org_agent.graph import (
     _extract_company_type,
     _extract_company_facts,
     _extract_contact_info,
+    _extract_description,
     _extract_industries,
     _country_from_address,
     _derive_profile_country_from_address,
@@ -117,6 +118,12 @@ class _SequentialTextLLM:
                 self.content = content
 
         return _Response(content)
+
+
+class _SlowLLM:
+    async def ainvoke(self, messages):
+        await asyncio.sleep(1)
+        return messages
 
 
 def test_load_industries_reads_comma_separated_file(tmp_path) -> None:
@@ -370,6 +377,47 @@ def test_parse_multiple_candidate_response_accepts_exact_lines_or_none() -> None
     assert _parse_multiple_candidate_response("NONE", candidates, 2) == []
     assert _parse_multiple_candidate_response("Food Processing\nInvented", candidates, 2) == (
         LLM_LIST_SELECTION_MISMATCH
+    )
+
+
+def test_extract_description_timeout_returns_empty_string(monkeypatch) -> None:
+    messages: list[tuple[str, str]] = []
+    monkeypatch.setattr("org_agent.graph.LLM_CALL_TIMEOUT_SECONDS", 0.01)
+
+    description = asyncio.run(
+        _extract_description(
+            _SlowLLM(),
+            "Describe [Account Name].",
+            "Example Ltd",
+            WebsitePage(url="https://example.com", text="About page text."),
+            lambda scope, message: messages.append((scope, message)),
+            "analyze_page",
+        )
+    )
+
+    assert description == ""
+    assert messages[-1] == ("analyze_page", "LLM timed out after 20 seconds: description.")
+
+
+def test_select_single_candidate_timeout_returns_none(monkeypatch) -> None:
+    messages: list[tuple[str, str]] = []
+    monkeypatch.setattr("org_agent.graph.LLM_CALL_TIMEOUT_SECONDS", 0.01)
+
+    selected = asyncio.run(
+        _select_single_candidate(
+            _SlowLLM(),
+            "Choose one.",
+            ["Commercial Enterprise"],
+            "company_type",
+            lambda scope, message: messages.append((scope, message)),
+            "analyze_page",
+        )
+    )
+
+    assert selected is None
+    assert messages[-1] == (
+        "analyze_page",
+        "LLM timed out after 20 seconds: company_type selection.",
     )
 
 
