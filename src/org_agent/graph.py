@@ -35,7 +35,7 @@ from org_agent.models import (
     WebsitePage,
 )
 from org_agent.progress import ProgressCallback, report
-from org_agent.registry import normalize_country_code, query_country_registry
+from org_agent.registry import normalize_country_code, query_country_registry, registry_module_available
 from org_agent.settings import Settings
 from org_agent.website import (
     INFORMATION_LINK_SIGNALS,
@@ -118,6 +118,10 @@ def build_graph(
                 "call_registries",
                 "Skipped registry lookup because no country registry was selected.",
             )
+            return state
+        if not registry_module_available(country):
+            state.registry_message = _missing_registry_integration_message(country)
+            report(progress, "call_registries", state.registry_message)
             return state
         if not _registry_credentials_available(country):
             state.registry_message = _missing_registry_credentials_message(country)
@@ -1136,16 +1140,24 @@ def _queried_country_value(country: str | None) -> str:
 
 def _registry_credentials_available(country: str | None) -> bool:
     normalized_country = normalize_country_code(country)
-    if normalized_country == "ch":
-        from org_agent.countries.ch import registry as ch_registry
-
-        return ch_registry.has_credentials()
-    return True
+    if normalized_country is None:
+        return False
+    module_name = f"org_agent.countries.{normalized_country}.registry"
+    registry_module = __import__(module_name, fromlist=["registry"])
+    return registry_module.has_credentials()
 
 
 def _missing_registry_credentials_message(country: str | None) -> str:
     registry_country = _queried_country_value(country)
     return f"Registry lookup was not called because {registry_country} registry credentials are missing."
+
+
+def _missing_registry_integration_message(country: str | None) -> str:
+    registry_country = _queried_country_value(country)
+    return (
+        "Registry lookup was not called because no registry integration is available "
+        f"for {registry_country}."
+    )
 
 
 def _registry_result_message(
@@ -1157,6 +1169,8 @@ def _registry_result_message(
         return None
     if not country:
         return "Registry lookup was not called because no country registry was selected."
+    if not registry_module_available(country):
+        return _missing_registry_integration_message(country)
     if any(getattr(result, "status_code", None) == 0 for result in registry_results):
         return "Registry lookup failed; see registry trace output."
     return "Registry lookup completed but did not produce registry profile fields."

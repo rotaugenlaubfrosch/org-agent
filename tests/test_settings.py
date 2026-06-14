@@ -177,9 +177,10 @@ def test_validate_settings_accepts_country_without_registry_credentials(
     settings = Settings()
 
     validate_settings(settings, country="ch")
+    validate_settings(settings, country="li")
 
 
-def test_validate_settings_rejects_unsupported_country(monkeypatch, tmp_path: Path) -> None:
+def test_validate_settings_rejects_invalid_country(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ORG_AGENT_LLM_PROVIDER", "ollama")
     monkeypatch.setenv("ORG_AGENT_LLM_MODEL", "llama3.1")
@@ -187,5 +188,5 @@ def test_validate_settings_rejects_unsupported_country(monkeypatch, tmp_path: Pa
 
     settings = Settings()
 
-    with pytest.raises(ValueError, match="Unsupported --country value: xx"):
+    with pytest.raises(ValueError, match="Invalid --country value: xx"):
         validate_settings(settings, country="xx")

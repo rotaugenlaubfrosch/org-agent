@@ -39,6 +39,7 @@ from org_agent.graph import (
     _parse_structured_result,
     _queried_country_value,
     _missing_registry_credentials_message,
+    _missing_registry_integration_message,
     _registry_result_message,
     _select_multiple_candidates,
     _select_single_candidate,
@@ -959,8 +960,7 @@ def test_build_registry_profile_returns_none_without_registry_values() -> None:
 def test_queried_country_value_uses_uppercase_code_or_not_specified() -> None:
     assert _queried_country_value("ch") == "CH"
     assert _queried_country_value(" CH ") == "CH"
-    assert _queried_country_value("CHE") == "CH"
-    assert _queried_country_value("Switzerland") == "CH"
+    assert _queried_country_value("li") == "LI"
     assert _queried_country_value(None) == "not specified"
     assert _queried_country_value(" ") == "not specified"
 
@@ -976,6 +976,20 @@ def test_missing_registry_credentials_message_uses_uppercase_country_code() -> N
     assert (
         _missing_registry_credentials_message("ch")
         == "Registry lookup was not called because CH registry credentials are missing."
+    )
+
+
+def test_missing_registry_integration_message_uses_uppercase_country_code() -> None:
+    assert (
+        _missing_registry_integration_message("li")
+        == "Registry lookup was not called because no registry integration is available for LI."
+    )
+
+
+def test_registry_result_message_explains_missing_registry_integration() -> None:
+    assert (
+        _registry_result_message("li", [], None)
+        == "Registry lookup was not called because no registry integration is available for LI."
     )
 
 

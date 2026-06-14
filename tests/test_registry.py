@@ -1,9 +1,56 @@
+import asyncio
+
 from org_agent.countries.ch.registry import (
     _build_profile_patch,
     _fallback_search_name,
     _format_legal_address,
     _pick_exact_match,
 )
+from org_agent.registry import normalize_country_code, query_country_registry, validate_country_code
+
+
+def test_normalize_country_code_accepts_iso_alpha_2_codes() -> None:
+    assert normalize_country_code(" CH ") == "ch"
+    assert normalize_country_code("li") == "li"
+    assert normalize_country_code("DE") == "de"
+    assert normalize_country_code(None) is None
+    assert normalize_country_code(" ") is None
+
+
+def test_validate_country_code_rejects_non_alpha_2_values() -> None:
+    for value in ["Switzerland", "CHE", "xx", "c"]:
+        try:
+            validate_country_code(value)
+        except ValueError as exc:
+            assert "Expected a two-letter ISO 3166-1 alpha-2 country code" in str(exc)
+        else:  # pragma: no cover - explicit failure branch for readability
+            raise AssertionError(f"Expected {value!r} to be rejected")
+
+
+def test_validate_country_code_accepts_valid_country_without_registry() -> None:
+    validate_country_code("li")
+
+
+def test_query_country_registry_skips_country_without_registry_integration() -> None:
+    reports = []
+
+    result = asyncio.run(
+        query_country_registry(
+            "li",
+            "Example AG",
+            20,
+            progress=lambda scope, message: reports.append((scope, message)),
+            scope="call_registries",
+        )
+    )
+
+    assert result == []
+    assert reports == [
+        (
+            "call_registries",
+            "Skipped LI registry lookup because no registry integration is available.",
+        )
+    ]
 
 
 def test_build_zefix_profile_patch_maps_expected_fields() -> None:

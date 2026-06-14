@@ -37,7 +37,7 @@ ORG_AGENT_REGISTRY_CH_PASSWORD=<Swiss registry password>
 
 Common lookup options:
   --website <url>  Required official website. Bare domains like example.com are accepted.
-  --country <code> Enable optional country registry integration (e.g. ch)
+  --country <code> Two-letter ISO country code for country-specific behavior (e.g. ch)
   --json           Print raw JSON output
   --quiet          Suppress progress output
 
@@ -67,7 +67,7 @@ def main(
     country: str | None = typer.Option(
         None,
         "--country",
-        help="Enable optional country registry integration by country code, e.g. ch.",
+        help="Two-letter ISO country code for country-specific behavior, e.g. ch.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON output."),
     quiet: bool = typer.Option(
