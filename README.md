@@ -18,7 +18,7 @@ It is a Python package and CLI tool built with LangGraph, Playwright, Typer, Ric
 - Uses the provided website as the crawl starting point.
 - Crawls the website with Playwright. 
 - Follows useful links found on the website in breadth-first order, such as contact, imprint, legal, privacy, and about pages.
-- Optionally queries supported country registry APIs.
+- Optionally queries country registry APIs when an adapter exists.
 - Optionally fragments website addresses into country-specific address fields.
 - Sends gathered evidence to an LLM.
 - Returns separate website and registry profiles with evidence entries.
@@ -73,7 +73,7 @@ Run `uv run org-agent` to show the help dashboard.
 Common lookup options:
 
 - `--website <url>`: required official website. Bare domains like `example.com` are accepted and normalized to `https://example.com`.
-- `--country <code>`: enable optional country registry integration and country-specific address field derivation, for example `ch`
+- `--country <code>`: optional two-letter country code for registry integration and lookup of local company branches. Also the country-specific address field derivation is triggered.
 - `--json`: print raw JSON output with separate `website_profile` and `registry_profile` objects
 - `--quiet`: suppress progress output
 
@@ -109,7 +109,7 @@ Use a country registry integration:
 uv run org-agent "Example Ltd" --website example.com --country ch
 ```
 
-`--website` is required even when country registry lookup is enabled. The `--country` option selects the registry API integration only; it does not affect which website is crawled or which website fields are extracted. If the required country registry credentials are missing, the registry lookup is skipped and the website crawl continues normally.
+`--website` is required even when country registry lookup is enabled. The `--country` option must be a two-letter ISO 3166-1 alpha-2 country code, for example `ch`, `li`, or `de`. If a registry adapter exists at `src/org_agent/countries/<code>/registry.py`, the registry lookup is attempted. If no adapter exists, or required registry credentials are missing, the registry lookup is skipped and the website crawl continues normally.
 
 ## Website Crawling
  
@@ -176,7 +176,7 @@ website     `-- Privacy -> https://www.example.com/privacy  queued, not visited
 
 ## Country Registries
 
-Country registry APIs are optional and selected by country code. Supported country codes currently include `ch` for the Swiss company register.
+Country registry APIs are optional and selected by two-letter ISO country code. Registry support is discovered at runtime from `src/org_agent/countries/<code>/registry.py`; the repository currently includes `ch` for the Swiss company register.
 
 Swiss registry credentials are optional. If either value is missing, `--country ch` skips the registry lookup and continues with the website crawl.
 
