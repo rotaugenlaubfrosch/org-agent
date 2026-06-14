@@ -183,9 +183,37 @@ def _make_progress_logger():
 
     def log(step: str, message: str) -> None:
         style = styles.get(step, "white")
-        err_console.print(f"[bold {style}]{step:>8}[/]  {message}")
+        if _is_error_progress_message(message):
+            err_console.print(f"[bold {style}]{step:>8}[/]  [red]{message}[/]", highlight=False)
+        else:
+            err_console.print(f"[bold {style}]{step:>8}[/]  {message}")
 
     return log
+
+
+def _is_error_progress_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(pattern in lowered for pattern in _ERROR_PROGRESS_PATTERNS)
+
+
+_ERROR_PROGRESS_PATTERNS = (
+    "llm timed out",
+    "structured extraction failed",
+    "structured contact extraction failed",
+    "structured company facts extraction failed",
+    "structured link selection failed",
+    "repairing invalid json response",
+    "response did not match list elements",
+    "could not be parsed",
+    "registry lookup failed",
+    "registry failed",
+    "credentials are missing",
+    "no registry integration is available",
+    "removed email not found",
+    "page could not be loaded",
+    "could not be resolved",
+    "no address fields config exists",
+)
 
 
 if __name__ == "__main__":

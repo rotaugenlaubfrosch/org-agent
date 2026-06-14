@@ -47,6 +47,44 @@ def test_print_profile_table_draws_separator_after_queried_fields(monkeypatch) -
     assert rendered.index("CH") < rendered.index("─") < rendered.index("legal_structure")
 
 
+def test_progress_error_classifier_flags_error_like_messages() -> None:
+    assert cli._is_error_progress_message("LLM timed out after 20 seconds: description.")
+    assert cli._is_error_progress_message("Structured link selection failed; retrying with JSON prompt.")
+    assert cli._is_error_progress_message("Registry lookup was not called because CH registry credentials are missing.")
+    assert cli._is_error_progress_message("Removed email not found in crawled website pages: info@example.com")
+
+
+def test_progress_error_classifier_leaves_normal_messages_unchanged() -> None:
+    assert not cli._is_error_progress_message("Calling LLM for description...")
+    assert not cli._is_error_progress_message("Skipped registry lookup because no country registry was selected.")
+    assert not cli._is_error_progress_message("Skipped email validation: no email extracted.")
+
+
+def test_progress_logger_colors_only_error_message_text_red(monkeypatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(cli, "err_console", Console(file=output, force_terminal=True, color_system="truecolor"))
+
+    logger = cli._make_progress_logger()
+    logger("analyze_page", "LLM timed out after 20 seconds: description.")
+
+    rendered = output.getvalue()
+    assert "analyze_page" in rendered
+    assert "LLM timed out after 20 seconds: description." in rendered
+    assert "\x1b[31mLLM timed out after 20 seconds: description." in rendered
+
+
+def test_progress_logger_does_not_color_normal_message_red(monkeypatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(cli, "err_console", Console(file=output, force_terminal=True, color_system="truecolor"))
+
+    logger = cli._make_progress_logger()
+    logger("analyze_page", "Calling LLM for description...")
+
+    rendered = output.getvalue()
+    assert "Calling LLM for description" in rendered
+    assert "\x1b[31m" not in rendered
+
+
 def test_print_lookup_result_shows_registry_status_without_registry_profile(monkeypatch) -> None:
     output = StringIO()
     monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
