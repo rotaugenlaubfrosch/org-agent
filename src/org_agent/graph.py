@@ -1302,6 +1302,14 @@ def _address_fields_config_selection(
                 path,
                 f"Address fields country source: explicit --country={explicit_country} -> {country_code}.",
             )
+        default_path = _default_address_fields_path()
+        if default_path.exists():
+            return (
+                default_path,
+                "Address fields country source: explicit "
+                f"--country={explicit_country} -> {country_code}; using default address fields "
+                f"config because no country-specific config exists: {_relative_path(default_path)}.",
+            )
         return (
             None,
             "Skipped address fragmentation because explicit "
@@ -1325,6 +1333,15 @@ def _address_fields_config_selection(
                 "Address fields country source: extracted "
                 f"profile.address_country={extracted_country} -> {country_code}.",
             )
+        default_path = _default_address_fields_path()
+        if default_path.exists():
+            return (
+                default_path,
+                "Address fields country source: extracted "
+                f"profile.address_country={extracted_country} -> {country_code}; using default "
+                "address fields config because no country-specific config exists: "
+                f"{_relative_path(default_path)}.",
+            )
         return (
             None,
             "Skipped address fragmentation because extracted "
@@ -1340,6 +1357,17 @@ def _address_fields_config_selection(
 
 def _address_fields_path(country_code: str) -> Path:
     return Path(__file__).parent / "countries" / country_code / "address_fields.json"
+
+
+def _default_address_fields_path() -> Path:
+    return Path(__file__).parent / "countries" / "_DEFAULT" / "address_fields.json"
+
+
+def _relative_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
 
 
 def _country_code(country: str | None) -> str | None:

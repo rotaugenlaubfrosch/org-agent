@@ -82,7 +82,11 @@ def registry_module_available(country: str | None) -> bool:
 
 def _registry_module(country_code: str):
     module_name = f"org_agent.countries.{country_code}.registry"
-    if importlib.util.find_spec(module_name) is None:
+    try:
+        spec = importlib.util.find_spec(module_name)
+    except ModuleNotFoundError:
+        return None
+    if spec is None:
         return None
     return importlib.import_module(module_name)
 

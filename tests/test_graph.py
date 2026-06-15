@@ -223,6 +223,7 @@ def test_load_address_fields_config_rejects_extra_keys(tmp_path) -> None:
 def test_address_fields_config_path_resolves_explicit_country_and_profile_country() -> None:
     assert _address_fields_config_path("ch", None) is not None
     assert _address_fields_config_path(None, "Switzerland") is not None
+    assert _address_fields_config_path("de", None) is not None
 
 
 def test_validated_address_fields_prefixes_and_filters_values() -> None:
@@ -343,12 +344,15 @@ def test_fragment_profile_address_reports_no_country_skip() -> None:
     assert profile.address_fields == {}
 
 
-def test_fragment_profile_address_reports_no_config_skip() -> None:
+def test_fragment_profile_address_uses_default_config_when_country_config_missing() -> None:
     profile = OrganizationProfile(
         queried_name="Example GmbH",
         address="Example Street 1, 10115 Berlin",
     )
-    llm = _AddressFragmentationLLM('{"address_city": "Berlin"}')
+    llm = _AddressFragmentationLLM(
+        '{"address_street": "Example Street", "address_number": "1", '
+        '"address_postal_code": "10115", "address_city": "Berlin"}'
+    )
     reports = []
 
     asyncio.run(
@@ -361,15 +365,20 @@ def test_fragment_profile_address_reports_no_config_skip() -> None:
         )
     )
 
-    assert reports == [
-        (
-            "validate_profile",
-            "Skipped address fragmentation because explicit --country=de resolved to de, "
-            "but no address fields config exists for country: de.",
-        )
-    ]
-    assert llm.messages is None
-    assert profile.address_fields == {}
+    assert reports[0] == (
+        "validate_profile",
+        "Address fields country source: explicit --country=de -> de; using default address "
+        "fields config because no country-specific config exists: "
+        "src/org_agent/countries/_DEFAULT/address_fields.json.",
+    )
+    assert "Therefore, using address fields config:" in reports[1][1]
+    assert "_DEFAULT/address_fields.json" in reports[1][1]
+    assert profile.address_fields == {
+        "address_street": "Example Street",
+        "address_number": "1",
+        "address_postal_code": "10115",
+        "address_city": "Berlin",
+    }
 
 
 def test_parse_single_candidate_response_accepts_exact_value_or_none() -> None:

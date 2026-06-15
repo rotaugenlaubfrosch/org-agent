@@ -6,7 +6,12 @@ from org_agent.countries.ch.registry import (
     _format_legal_address,
     _pick_exact_match,
 )
-from org_agent.registry import normalize_country_code, query_country_registry, validate_country_code
+from org_agent.registry import (
+    normalize_country_code,
+    query_country_registry,
+    registry_module_available,
+    validate_country_code,
+)
 
 
 def test_normalize_country_code_accepts_iso_alpha_2_codes() -> None:
@@ -51,6 +56,10 @@ def test_query_country_registry_skips_country_without_registry_integration() -> 
             "Skipped LI registry lookup because no registry integration is available.",
         )
     ]
+
+
+def test_registry_module_available_returns_false_for_missing_country_package() -> None:
+    assert registry_module_available("de") is False
 
 
 def test_build_zefix_profile_patch_maps_expected_fields() -> None:
