@@ -108,6 +108,8 @@ def filter_candidate_links(
     links: list[WebsiteLink],
     root_url: str,
     current_url: str,
+    country_focus_code: str | None = None,
+    country_focus_name: str | None = None,
 ) -> list[WebsiteLink]:
     candidates: dict[str, WebsiteLink] = {}
     for link in links:
@@ -124,12 +126,53 @@ def filter_candidate_links(
         if not (_same_site(root_url, url) or _same_site(current_url, url) or _looks_official_external(link)):
             continue
         candidates.setdefault(url, WebsiteLink(url=url, text=link.text, area=link.area))
+    if country_focus_code and country_focus_name:
+        return sorted(
+            candidates.values(),
+            key=lambda link: (
+                _country_branch_sort_key(link, country_focus_code, country_focus_name),
+                _link_text_signal_sort_key(link),
+            ),
+        )
     return sorted(candidates.values(), key=_link_text_signal_sort_key)
 
 
 def _link_text_signal_sort_key(link: WebsiteLink) -> int:
     text = link.text.lower()
     return 0 if any(signal in text for signal in INFORMATION_LINK_SIGNALS) else 1
+
+
+def _country_branch_sort_key(
+    link: WebsiteLink,
+    country_focus_code: str,
+    country_focus_name: str,
+) -> int:
+    return 0 if _looks_like_country_branch(link, country_focus_code, country_focus_name) else 1
+
+
+def _looks_like_country_branch(
+    link: WebsiteLink,
+    country_focus_code: str,
+    country_focus_name: str,
+) -> bool:
+    code = country_focus_code.strip().lower()
+    name = country_focus_name.strip().lower()
+    parsed = urlparse(link.url)
+    host = parsed.netloc.lower().split(":", 1)[0]
+    url_and_text = f"{link.url.lower()} {link.text.lower()}"
+    code_signals = (
+        f"/{code}/",
+        f"/{code}-",
+        f"/{code}_",
+        f"-{code}",
+        f"_{code}",
+    )
+    return (
+        host == code
+        or host.endswith(f".{code}")
+        or name in url_and_text
+        or any(signal in url_and_text for signal in code_signals)
+    )
 
 
 def normalize_url(url: str) -> str:

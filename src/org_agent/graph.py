@@ -95,9 +95,16 @@ def build_graph(
     contact_extraction_parser = PydanticOutputParser(pydantic_object=ContactPageExtraction)
     company_facts_parser = PydanticOutputParser(pydantic_object=CompanyFactsExtraction)
     crawl_decision_parser = PydanticOutputParser(pydantic_object=CrawlDecision)
+    country_focus = _country_focus(country)
 
     async def initialize(state: AgentState) -> AgentState:
         report(progress, "initialize", f"Looking up: {state.input.name}")
+        if country_focus:
+            report(
+                progress,
+                "initialize",
+                f"Country focus enabled: {country_focus[0]} / {country_focus[1]}.",
+            )
         state.website = str(state.input.website) if state.input.website else None
         if state.website:
             report(progress, "initialize", f"Using provided website: {state.website}")
@@ -227,7 +234,15 @@ def build_graph(
             state.raw_links,
             root_url=state.website,
             current_url=state.current_page.url,
+            country_focus_code=country_focus[0] if country_focus else None,
+            country_focus_name=country_focus[1] if country_focus else None,
         )
+        if country_focus:
+            report(
+                progress,
+                "filter_links",
+                f"Country focus: prioritizing {country_focus[0]} branch links.",
+            )
         _report_candidate_links(
             progress,
             "filter_links",
@@ -254,6 +269,7 @@ def build_graph(
                     state.current_page,
                     progress,
                     "analyze_page",
+                    country_focus_name=country_focus[1] if country_focus else None,
                 )
                 _keep_requested_extraction_fields(contact_extraction, contact_fields)
                 _set_website_evidence_source(contact_extraction.evidence, state.current_page.url)
@@ -275,6 +291,7 @@ def build_graph(
                     state.current_page,
                     progress,
                     "analyze_page",
+                    country_focus_name=country_focus[1] if country_focus else None,
                 )
                 _keep_requested_extraction_fields(facts_extraction, company_fact_fields)
                 _set_website_evidence_source(facts_extraction.evidence, state.current_page.url)
@@ -403,6 +420,7 @@ def build_graph(
             state.candidate_links,
             progress,
             "analyze_page",
+            country_focus_name=country_focus[1] if country_focus else None,
         )
 
         selected_urls = _normalize_selected_urls(decision.selected_urls[:3], state.candidate_links)
@@ -661,6 +679,7 @@ async def _extract_contact_info(
     current_page: WebsitePage,
     progress: ProgressCallback | None,
     scope: str,
+    country_focus_name: str | None = None,
 ) -> ContactPageExtraction:
     formatted_fields = "\n".join(
         f"- {_contact_prompt_field_label(field)}" for field in requested_fields
@@ -674,6 +693,7 @@ async def _extract_contact_info(
         "Do not infer contact details. "
         "Write brief evidence entries for each extracted value. "
         "Do not summarize the page. "
+        f"{_country_focus_information_prompt(country_focus_name)}"
         "If no requested contact fields are present, set reasoning to exactly: "
         "No requested contact fields found. "
         "Otherwise, write a one-sentence factual explanation as reasoning.\n"
@@ -725,6 +745,7 @@ async def _extract_company_facts(
     current_page: WebsitePage,
     progress: ProgressCallback | None,
     scope: str,
+    country_focus_name: str | None = None,
 ) -> CompanyFactsExtraction:
     formatted_fields = "\n".join(f"- {field}" for field in requested_fields)
     prompt = (
@@ -738,6 +759,7 @@ async def _extract_company_facts(
         "Use null for listed fields that are not present on the current page. "
         "Write brief evidence entries for each extracted value. "
         "Do not summarize the page. "
+        f"{_country_focus_information_prompt(country_focus_name)}"
         "If no requested company fact fields are present, set reasoning to exactly: "
         "No requested company fact fields found. "
         "Otherwise, write a one-sentence factual explanation as reasoning.\n"
@@ -1138,6 +1160,28 @@ def _queried_country_value(country: str | None) -> str:
     return country_code.upper() if country_code else "not specified"
 
 
+def _country_focus(country: str | None) -> tuple[str, str] | None:
+    country_code = _country_code(normalize_country_code(country))
+    if country_code is None:
+        return None
+    match = pycountry.countries.get(alpha_2=country_code.upper())
+    if match is None:
+        return None
+    return country_code.upper(), match.name
+
+
+def _country_focus_information_prompt(country_focus_name: str | None) -> str:
+    if not country_focus_name:
+        return ""
+    return f"Prioritize information for {country_focus_name}. "
+
+
+def _country_focus_link_prompt(country_focus_name: str | None) -> str:
+    if not country_focus_name:
+        return ""
+    return f"Prioritize links that appear to belong to {country_focus_name}.\n"
+
+
 def _registry_credentials_available(country: str | None) -> bool:
     normalized_country = normalize_country_code(country)
     if normalized_country is None:
@@ -1457,6 +1501,7 @@ async def _select_next_links(
     candidate_links: list[WebsiteLink],
     progress: ProgressCallback | None,
     scope: str,
+    country_focus_name: str | None = None,
 ) -> CrawlDecision:
     available_links = [link.model_dump() for link in candidate_links[:LINK_SELECTION_MAX_CANDIDATES]]
     formatted_missing_fields = "\n".join(f"- {field}" for field in missing_fields) or "- none"
@@ -1474,6 +1519,7 @@ async def _select_next_links(
         "such as about/company details, contact information, legal/imprint information, "
         "privacy information, registration details, address, email, or phone.\n"
         "Only select URLs from the candidate links. Do not invent URLs.\n"
+        f"{_country_focus_link_prompt(country_focus_name)}"
         "If no candidate link looks useful, return no selected URLs and set is_complete to true; "
         "otherwise set is_complete to false.\n"
         "Return JSON only. Do not include Markdown, commentary, explanations, or code fences.\n\n"

@@ -97,3 +97,69 @@ def test_filter_candidate_links_orders_text_keyword_matches_first() -> None:
     )
 
     assert [link.text for link in candidates] == ["Contact", "About us", "Reach us"]
+
+
+def test_filter_candidate_links_prioritizes_country_branch_before_keyword_matches() -> None:
+    links = [
+        WebsiteLink(
+            url="https://example.com/contact",
+            text="Contact",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://example.com/ch/about",
+            text="Read more",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://example.ch/privacy",
+            text="Privacy",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://example.com/switzerland/company",
+            text="Company",
+            area="navigation",
+        ),
+    ]
+
+    candidates = filter_candidate_links(
+        links,
+        root_url="https://example.com",
+        current_url="https://example.com",
+        country_focus_code="CH",
+        country_focus_name="Switzerland",
+    )
+
+    assert [link.url for link in candidates] == [
+        "https://example.ch/privacy",
+        "https://example.com/switzerland/company",
+        "https://example.com/ch/about",
+        "https://example.com/contact",
+    ]
+
+
+def test_filter_candidate_links_without_country_keeps_existing_ordering() -> None:
+    links = [
+        WebsiteLink(
+            url="https://example.com/contact",
+            text="Contact",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://example.com/ch/about",
+            text="Read more",
+            area="navigation",
+        ),
+    ]
+
+    candidates = filter_candidate_links(
+        links,
+        root_url="https://example.com",
+        current_url="https://example.com",
+    )
+
+    assert [link.url for link in candidates] == [
+        "https://example.com/contact",
+        "https://example.com/ch/about",
+    ]

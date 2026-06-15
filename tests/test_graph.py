@@ -10,6 +10,7 @@ from org_agent.graph import (
     NO_REGISTRY_REGION_MESSAGE,
     NO_REGISTRY_REGISTRATION_ID_MESSAGE,
     _fill_registry_only_field_messages,
+    _country_focus,
     _extract_company_type,
     _extract_company_facts,
     _extract_contact_info,
@@ -42,6 +43,7 @@ from org_agent.graph import (
     _missing_registry_integration_message,
     _registry_result_message,
     _select_multiple_candidates,
+    _select_next_links,
     _select_single_candidate,
     _should_continue_after_skipped_page,
     _should_continue_crawl,
@@ -66,6 +68,7 @@ from org_agent.models import (
     ContactPageExtraction,
     PageExtraction,
     RegistryResult,
+    WebsiteLink,
     WebsiteOrganizationProfilePatch,
     WebsitePage,
 )
@@ -88,6 +91,18 @@ class _CapturingStructuredLLM:
     async def ainvoke(self, messages):
         self.messages = messages
         return self.model_type(reasoning="No values on page.")
+
+
+class _CapturingCrawlDecisionLLM:
+    def __init__(self) -> None:
+        self.messages = None
+
+    def with_structured_output(self, model_type):
+        return self
+
+    async def ainvoke(self, messages):
+        self.messages = messages
+        return CrawlDecision(is_complete=False, reasoning="Selected no links.")
 
 
 class _AddressFragmentationLLM:
@@ -709,6 +724,49 @@ def test_extract_contact_info_prompt_uses_contact_schema_only() -> None:
     assert "country" not in str(ContactPageExtraction.model_json_schema())
 
 
+def test_extract_contact_info_prompt_omits_country_focus_by_default() -> None:
+    llm = _CapturingStructuredLLM()
+    parser = PydanticOutputParser(pydantic_object=ContactPageExtraction)
+
+    asyncio.run(
+        _extract_contact_info(
+            llm,
+            parser,
+            "Example Ltd",
+            "https://example.com",
+            ["address"],
+            WebsitePage(url="https://example.com/contact", text="Contact page text."),
+            None,
+            "analyze_page",
+        )
+    )
+
+    prompt = llm.messages[-1].content
+    assert "Prioritize information for" not in prompt
+
+
+def test_extract_contact_info_prompt_includes_country_focus_name() -> None:
+    llm = _CapturingStructuredLLM()
+    parser = PydanticOutputParser(pydantic_object=ContactPageExtraction)
+
+    asyncio.run(
+        _extract_contact_info(
+            llm,
+            parser,
+            "Example Ltd",
+            "https://example.com",
+            ["address"],
+            WebsitePage(url="https://example.com/contact", text="Contact page text."),
+            None,
+            "analyze_page",
+            country_focus_name="Switzerland",
+        )
+    )
+
+    prompt = llm.messages[-1].content
+    assert "Prioritize information for Switzerland." in prompt
+
+
 def test_extract_company_facts_prompt_extracts_address_country_and_employees() -> None:
     llm = _CapturingStructuredLLM()
     parser = PydanticOutputParser(pydantic_object=CompanyFactsExtraction)
@@ -740,6 +798,61 @@ def test_extract_company_facts_prompt_extracts_address_country_and_employees() -
     assert "phone" not in fact_properties
     assert "country" not in fact_properties
     assert "address_country" in fact_properties
+
+
+def test_extract_company_facts_prompt_includes_country_focus_name() -> None:
+    llm = _CapturingStructuredLLM()
+    parser = PydanticOutputParser(pydantic_object=CompanyFactsExtraction)
+
+    asyncio.run(
+        _extract_company_facts(
+            llm,
+            parser,
+            "Example Ltd",
+            "https://example.com",
+            ["address_country", "employees"],
+            WebsitePage(url="https://example.com/about", text="About page text."),
+            None,
+            "analyze_page",
+            country_focus_name="Liechtenstein",
+        )
+    )
+
+    prompt = llm.messages[-1].content
+    assert "Prioritize information for Liechtenstein." in prompt
+
+
+def test_select_next_links_prompt_includes_country_focus_name() -> None:
+    llm = _CapturingCrawlDecisionLLM()
+    parser = PydanticOutputParser(pydantic_object=CrawlDecision)
+
+    asyncio.run(
+        _select_next_links(
+            llm,
+            parser,
+            "Example Ltd",
+            ["address"],
+            [
+                WebsiteLink(
+                    url="https://example.com/ch/contact",
+                    text="Contact",
+                    area="navigation",
+                )
+            ],
+            None,
+            "analyze_page",
+            country_focus_name="Switzerland",
+        )
+    )
+
+    prompt = llm.messages[-1].content
+    assert "Prioritize links that appear to belong to Switzerland." in prompt
+
+
+def test_country_focus_resolves_country_name_from_code() -> None:
+    assert _country_focus("ch") == ("CH", "Switzerland")
+    assert _country_focus("li") == ("LI", "Liechtenstein")
+    assert _country_focus(None) is None
 
 
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
