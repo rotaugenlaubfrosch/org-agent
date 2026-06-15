@@ -73,7 +73,7 @@ Run `uv run org-agent` to show the help dashboard.
 Common lookup options:
 
 - `--website <url>`: required official website. Bare domains like `example.com` are accepted and normalized to `https://example.com`.
-- `--country <code>`: optional two-letter country code for registry integration and lookup of local company branches. Also the country-specific address field derivation is triggered.
+- `--country <code>`: optional two-letter ISO country code. When set, website crawling and extraction prioritize that country branch, registry lookup is attempted if an adapter exists, and country-specific address field derivation is triggered.
 - `--json`: print raw JSON output with separate `website_profile` and `registry_profile` objects
 - `--quiet`: suppress progress output
 
@@ -109,7 +109,7 @@ Use a country registry integration:
 uv run org-agent "Example Ltd" --website example.com --country ch
 ```
 
-`--website` is required even when country registry lookup is enabled. The `--country` option must be a two-letter ISO 3166-1 alpha-2 country code, for example `ch`, `li`, or `de`. If a registry adapter exists at `src/org_agent/countries/<code>/registry.py`, the registry lookup is attempted. If no adapter exists, or required registry credentials are missing, the registry lookup is skipped and the website crawl continues normally.
+`--website` is required even when country registry lookup is enabled. The `--country` option must be a two-letter ISO 3166-1 alpha-2 country code, for example `ch`, `li`, or `de`. When set, the country name is resolved dynamically with `pycountry`, website crawling prioritizes links that appear to belong to that country branch, and extraction prompts prioritize information for that country. If a registry adapter exists at `src/org_agent/countries/<code>/registry.py`, the registry lookup is attempted. If no adapter exists, or required registry credentials are missing, the registry lookup is skipped and the website crawl continues normally. Without `--country`, the generic website crawl and extraction behavior is unchanged.
 
 ## Website Crawling
  
@@ -124,7 +124,7 @@ The crawler:
 - extracts actual links from the page
 - removes obvious junk links such as carts, login pages, product detail pages, campaigns, and social media
 - keeps links with organization-information signals in the link text or URL, such as contact, imprint/legal, privacy, company/about, story, or terms
-- orders filtered links so links with configured keywords in their visible link text are shown first, preserving page order within each group
+- orders filtered links so links with configured keywords in their visible link text are shown first, preserving page order within each group. When `--country` is set, country-branch-looking links are sorted before generic links, then the same keyword ordering is applied within each group
 - sends at most the first 25 filtered and ordered candidate links to the LLM for link selection
 - asks the LLM to update the partial profile from the current page
 - asks the LLM whether enough information has been collected
