@@ -201,6 +201,12 @@ Address field configs live at:
 src/org_agent/countries/<code>/address_fields.json
 ```
 
+The default fallback config lives at:
+
+```text
+src/org_agent/countries/_DEFAULT/address_fields.json
+```
+
 For example, the Swiss config is:
 
 ```text
@@ -237,9 +243,10 @@ Example output:
 
 Address field config selection uses this priority:
 
-- explicit `--country <code>`
-- extracted `profile.address_country`, resolved to an ISO alpha-2 country code when possible
-- skip address fragmentation if no country is available or corresponding `address_fields.json` is missing
+- explicit `--country <code>`, using `src/org_agent/countries/<code>/address_fields.json` when it exists
+- extracted `profile.address_country`, resolved to an ISO alpha-2 country code when possible, using `src/org_agent/countries/<code>/address_fields.json` when it exists
+- `src/org_agent/countries/_DEFAULT/address_fields.json` when a country is known but no country-specific config exists
+- skip address fragmentation if no country is available or no default config exists
 
 Validation behavior:
 
