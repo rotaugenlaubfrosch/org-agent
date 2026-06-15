@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 from pathlib import Path
 
 
@@ -17,7 +18,19 @@ def main() -> None:
     args = parser.parse_args()
 
     for index, row in enumerate(_read_jsonl(args.ground_truth)):
-        print(f"{index}: {row.get('name', '')}")
+        command = _org_agent_command(row)
+        print(f"{index}: {row.get('name', '')} [{command}]")
+
+
+def _org_agent_command(row: dict) -> str:
+    command = ["uv", "run", "org-agent", str(row.get("name", ""))]
+    website = row.get("website")
+    if website:
+        command.extend(("--website", str(website)))
+    country = row.get("country")
+    if country:
+        command.extend(("--country", str(country)))
+    return " ".join(shlex.quote(part) for part in command)
 
 
 def _read_jsonl(path: Path) -> list[dict]:
