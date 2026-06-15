@@ -21,6 +21,7 @@ from org_agent.graph import (
     _extract_legal_structure,
     _extract_page_info,
     _extract_sector,
+    _first_page_blocked_reason,
     _keep_requested_extraction_fields,
     _load_industries,
     _missing_crawl_fields,
@@ -39,6 +40,7 @@ from org_agent.graph import (
     _parse_single_candidate_response,
     _parse_structured_result,
     _queried_country_value,
+    run_lookup,
     _missing_registry_credentials_message,
     _missing_registry_integration_message,
     _registry_result_message,
@@ -72,6 +74,7 @@ from org_agent.models import (
     WebsiteOrganizationProfilePatch,
     WebsitePage,
 )
+from org_agent.settings import Settings
 
 
 class _CrawlSettings:
@@ -853,6 +856,64 @@ def test_country_focus_resolves_country_name_from_code() -> None:
     assert _country_focus("ch") == ("CH", "Switzerland")
     assert _country_focus("li") == ("LI", "Liechtenstein")
     assert _country_focus(None) is None
+
+
+def test_first_page_blocked_reason_detects_short_blocked_root_page() -> None:
+    page = WebsitePage(
+        url="https://example.com",
+        text="Access denied\nYour request was blocked.",
+    )
+
+    reason = _first_page_blocked_reason(page, depth=0)
+
+    assert reason is not None
+    assert "blocked" in reason
+
+
+def test_first_page_blocked_reason_ignores_long_pages() -> None:
+    page = WebsitePage(
+        url="https://example.com",
+        text="\n".join(["This page says blocked but has content."] * 26),
+    )
+
+    assert _first_page_blocked_reason(page, depth=0) is None
+
+
+def test_first_page_blocked_reason_ignores_non_root_pages() -> None:
+    page = WebsitePage(url="https://example.com/contact", text="Access denied")
+
+    assert _first_page_blocked_reason(page, depth=1) is None
+
+
+def test_run_lookup_sets_failed_status_for_blocked_first_page(monkeypatch) -> None:
+    async def fake_fetch_page_with_playwright(*args, **kwargs):
+        return (
+            WebsitePage(
+                url="https://example.com",
+                title="Access Denied",
+                text="Access denied\nYour request was blocked.",
+            ),
+            [],
+            None,
+        )
+
+    monkeypatch.setattr("org_agent.graph.build_chat_model", lambda settings: _CapturingStructuredLLM())
+    monkeypatch.setattr("org_agent.graph.fetch_page_with_playwright", fake_fetch_page_with_playwright)
+
+    result = asyncio.run(
+        run_lookup(
+            LookupInput(name="Example Ltd", website="https://example.com"),
+            Settings(
+                llm_provider="ollama",
+                llm_model="test-model",
+                ollama_base_url="http://localhost:11434",
+                crawl_log_enabled=False,
+            ),
+        )
+    )
+
+    assert result.website_profile.status == "FAILED"
+    assert result.website_profile.evidence == []
 
 
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:

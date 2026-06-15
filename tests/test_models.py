@@ -32,6 +32,7 @@ def test_organization_profile_accepts_expected_fields() -> None:
         address_country="United States",
         country="United States",
         region="California",
+        status="FAILED",
         evidence=[
             EvidenceEntry(
                 field="queried_website",
@@ -50,6 +51,7 @@ def test_organization_profile_accepts_expected_fields() -> None:
     assert profile.address == "Example Street 1"
     assert profile.address_fields == {"address_street": "Example Street"}
     assert profile.legal_address == "Registry Street 10"
+    assert profile.status == "FAILED"
     assert profile.evidence[0].field == "queried_website"
 
 
@@ -74,6 +76,7 @@ def test_profile_display_fields_match_profile_scalar_fields() -> None:
         "address_country",
         "country",
         "region",
+        "status",
     )
     assert "evidence" not in PROFILE_DISPLAY_FIELDS
     assert set(PROFILE_DISPLAY_FIELDS).issubset(OrganizationProfile.model_fields)
@@ -114,6 +117,7 @@ def test_profile_display_field_groups_separate_website_and_registry_fields() -> 
         "phone",
         "email",
         "address_country",
+        "status",
     )
     assert registry_fields == REGISTRY_PROFILE_DISPLAY_FIELDS
     assert registry_fields == (

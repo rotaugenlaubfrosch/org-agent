@@ -134,6 +134,8 @@ def _print_profile_table(title: str, profile: OrganizationProfile, fields: tuple
     table.add_column("Value")
 
     for field in fields:
+        if field == "status":
+            table.add_section()
         value = getattr(profile, field)
         table.add_row(field, "" if value is None else str(value))
         if field == "queried_country":
@@ -207,6 +209,7 @@ _ERROR_PROGRESS_PATTERNS = (
     "could not be parsed",
     "registry lookup failed",
     "registry failed",
+    "first crawl page appears blocked",
     "credentials are missing",
     "no registry integration is available",
     "removed email not found",

@@ -47,6 +47,24 @@ def test_print_profile_table_draws_separator_after_queried_fields(monkeypatch) -
     assert rendered.index("CH") < rendered.index("─") < rendered.index("legal_structure")
 
 
+def test_print_profile_table_draws_separator_before_status(monkeypatch) -> None:
+    output = StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        address_country="Switzerland",
+        status="FAILED",
+    )
+
+    cli._print_profile_table("Website Profile", profile, ("address_country", "status"))
+
+    rendered = output.getvalue()
+    assert "address_country" in rendered
+    assert "status" in rendered
+    assert "FAILED" in rendered
+    assert rendered.index("Switzerland") < rendered.index("─") < rendered.index("status")
+
+
 def test_progress_error_classifier_flags_error_like_messages() -> None:
     assert cli._is_error_progress_message("LLM timed out after 20 seconds: description.")
     assert cli._is_error_progress_message("Structured link selection failed; retrying with JSON prompt.")

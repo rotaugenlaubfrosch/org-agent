@@ -208,6 +208,17 @@ def build_graph(
 
         final_url = without_fragment(page.url)
         node.final_url = final_url
+        blocked_reason = _first_page_blocked_reason(page, target.depth)
+        if blocked_reason:
+            node.status = "skipped"
+            node.reason = blocked_reason
+            node.char_count = len(page.text)
+            if state.profile is not None:
+                state.profile.status = "FAILED"
+            state.pending_urls = []
+            state.should_continue_crawl = False
+            report(progress, "crawl_page", f"Stopping crawl: {blocked_reason}")
+            return state
         if final_url in state.visited_urls:
             node.status = "skipped"
             node.reason = f"redirected to already captured {final_url}"
@@ -2065,6 +2076,19 @@ def _has_minimum_profile(profile: OrganizationProfile | None) -> bool:
         and (profile.address or profile.email or profile.phone)
         and profile.evidence
     )
+
+
+def _first_page_blocked_reason(page: WebsitePage, depth: int) -> str | None:
+    if depth != 0:
+        return None
+    lines = [line.strip() for line in page.text.splitlines() if line.strip()]
+    if len(lines) > 25:
+        return None
+    text = page.text.lower()
+    for blocked_word in ("forbidden", "blocked", "denied"):
+        if blocked_word in text:
+            return f"first crawl page appears blocked: contains '{blocked_word}' in {len(lines)} line(s)"
+    return None
 
 
 def _crawl_node(state: AgentState, node_id: int | None) -> CrawlNode:

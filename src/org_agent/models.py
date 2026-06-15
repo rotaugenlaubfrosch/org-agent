@@ -23,6 +23,7 @@ PROFILE_DISPLAY_FIELDS = (
     "address_country",
     "country",
     "region",
+    "status",
 )
 
 REGISTRY_ONLY_PROFILE_FIELDS = (
@@ -47,6 +48,7 @@ WEBSITE_PROFILE_DISPLAY_FIELDS = (
     "phone",
     "email",
     "address_country",
+    "status",
 )
 
 REGISTRY_PROFILE_DISPLAY_FIELDS = (
@@ -95,6 +97,7 @@ class OrganizationProfile(BaseModel):
     address_country: str | None = None
     country: str | None = None
     region: str | None = None
+    status: str = "SUCCESS"
     evidence: list[EvidenceEntry] = Field(default_factory=list)
 
 
