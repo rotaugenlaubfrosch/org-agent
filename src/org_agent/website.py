@@ -232,7 +232,9 @@ async def _extract_visible_text_with_contact_hrefs(page) -> str:
                 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'SECTION', 'TABLE',
                 'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'UL'
             ]);
-            const ignoredTags = new Set(['STYLE', 'NOSCRIPT', 'IFRAME', 'SVG', 'CANVAS']);
+            const ignoredTags = new Set([
+                'STYLE', 'NOSCRIPT', 'IFRAME', 'SVG', 'CANVAS', 'SELECT', 'OPTION'
+            ]);
 
             const decodeContactHref = href => {
                 if (!href) return null;
