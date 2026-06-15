@@ -22,6 +22,7 @@ It is a Python package and CLI tool built with LangGraph, Playwright, Typer, Ric
 - Optionally fragments website addresses into country-specific address fields.
 - Sends gathered evidence to an LLM.
 - Returns separate website and registry profiles with evidence entries.
+- Reports website crawl `status` as `SUCCESS` or `FAILED` in CLI tables, JSON output, and evaluation tables.
 
 ## Setup
 
@@ -118,6 +119,7 @@ The crawler starts only from the provided website URL. It does not search for a 
 The crawler:
 
 - opens the website with Playwright
+- marks the website profile `status` as `FAILED` and stops website crawling if the first crawled page has 25 or fewer non-empty text lines and contains `forbidden`, `blocked`, or `denied` case-insensitively
 - waits briefly for the page to settle
 - scrolls the page to trigger lazy-loaded content
 - extracts visible body text
@@ -132,6 +134,8 @@ The crawler:
 - repeats page-by-page up to the configured crawl limits
 
 The crawl uses a hybrid approach. The `filter_links` node deterministically filters and orders candidate links before the LLM sees them. Candidate links must contain an organization-information signal in the URL or visible link text, such as contact, imprint/legal, privacy, company/about, story, or terms. The later `analyze_page` node receives at most the first 25 filtered and ordered links plus the fields still missing from the profile, then asks the LLM which links should be crawled next. The crawler processes queued links in breadth-first order and does not invent `/contact` or `/impressum` paths.
+
+The website profile includes a final `status` field. It defaults to `SUCCESS`. It is set to `FAILED` only when the first crawled page looks like an access-block page by this deterministic rule: the extracted text has 25 or fewer non-empty lines and contains `forbidden`, `blocked`, or `denied` case-insensitively. In that case, website crawling stops before extraction. The field is visible in normal CLI output, raw `--json` output, and `experiments/evaluate_agent.py` output.
 
 The `description`, `legal_structure`, `sector`, `company_type`, and `industry` fields use dedicated prompts instead of the generic page extraction prompt. `description` is generated from the current crawled page text using `ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT`. After description generation, `legal_structure` is selected from `ORG_AGENT_LEGAL_STRUCTURES_CSV` using only the current page text as context. The legal structures CSV is a headerless comma-separated list. By default it contains `Company Limited by Shares (AG / SA)`, `Limited Liability Company (GmbH / Sàrl)`, `Association (Verein)`, `Foundation (Stiftung)`, `Sole Proprietorship (Einzelunternehmen)`, `Partnership (Gesellschaft)`, `Cooperative (Genossenschaft)`, and `Public Law Institution (Öffentlich-rechtliche Anstalt)`. After legal structure selection, `sector` is selected from `ORG_AGENT_SECTORS_CSV`. The sectors CSV is a headerless comma-separated list. By default it contains `Producer (primary)`, `Manufacturer (secondary)`, `Professional Services (tertiary)`, `Knowledge & Information (quaternary)`, and `Governance (quinary)`. After sector selection, `company_type` is selected from `ORG_AGENT_COMPANY_TYPES_CSV`. The company types CSV is a headerless comma-separated list. By default it contains `Commercial Enterprise`, `Academic Institution`, `Research Institution`, `Government Organisation`, `Non-Government / Non-Profit Organisation (NGO / NPO)`, and `Innovation / Funding Agency`. After company type selection, `industry` is selected from `ORG_AGENT_INDUSTRIES_CSV`. The industries CSV is a headerless comma-separated list, for example `Additive Manufacturing,Metal-Organic Frameworks (MOF),Advanced Manufacturing`. If the list contains more entries than `ORG_AGENT_INDUSTRY_SHORTLIST_SIZE`, the generated description and industry labels are embedded with `intfloat/multilingual-e5-small`, the closest configured industries are shortlisted, and the LLM chooses at most `ORG_AGENT_MAX_INDUSTRIES`. Returned legal structures, sectors, company types, and industries are accepted only if they exactly match entries from the configured CSV files. Contact fields (`address`, `phone`, and `email`) are extracted by a dedicated contact prompt. The `employees` field is extracted by a separate company facts prompt and is filled only when a page explicitly states employee count, headcount, or number of employees. The website `country` field is not prompted from the LLM; it is derived from explicit country names or country-prefixed postal codes in the extracted address, such as `Liechtenstein`, `CH-8049`, or `LI-9494`.
 
