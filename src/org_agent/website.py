@@ -70,6 +70,7 @@ NOISE_EXTENSIONS = (
     ".js",
     ".mp3",
     ".mp4",
+    ".pdf",
     ".png",
     ".svg",
     ".webp",
