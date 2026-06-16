@@ -8,6 +8,8 @@ from rich.markup import escape
 from org_agent.models import CrawlNode, WebsiteLink, WebsitePage
 from org_agent.progress import ProgressCallback, report
 
+PAGE_TEXT_CHAR_LIMIT = 20000
+
 NOISE_LINK_PARTS = (
     "/account",
     "/cart",
@@ -109,7 +111,25 @@ async def fetch_page_with_playwright(
     if not cleaned:
         return None, links, "page body was empty"
 
-    return WebsitePage(url=final_url, title=title or None, text=cleaned[:20000]), links, None
+    limited_text = _limit_page_text(cleaned, progress, scope, final_url)
+    return WebsitePage(url=final_url, title=title or None, text=limited_text), links, None
+
+
+def _limit_page_text(
+    text: str,
+    progress: ProgressCallback | None,
+    scope: str,
+    url: str,
+) -> str:
+    if len(text) <= PAGE_TEXT_CHAR_LIMIT:
+        return text
+    report(
+        progress,
+        scope,
+        f"Page text limit reached for {url}: truncated extracted text "
+        f"from {len(text)} to {PAGE_TEXT_CHAR_LIMIT} chars.",
+    )
+    return text[:PAGE_TEXT_CHAR_LIMIT]
 
 
 def filter_candidate_links(

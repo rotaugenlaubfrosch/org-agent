@@ -212,6 +212,7 @@ _ERROR_PROGRESS_PATTERNS = (
     "first crawl page appears blocked",
     "credentials are missing",
     "no registry integration is available",
+    "page text limit reached",
     "removed email not found",
     "page could not be loaded",
     "could not be resolved",
