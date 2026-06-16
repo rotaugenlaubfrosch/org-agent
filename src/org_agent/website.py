@@ -29,6 +29,13 @@ NOISE_LINK_PARTS = (
     "twitter.com",
     "youtube.com",
 )
+BLACKLISTED_LINK_DOMAINS = (
+    "google",
+    "instagram.com",
+    "mailchimp",
+    "twitter.com",
+    "x.com",
+)
 INFORMATION_LINK_SIGNALS = (
     "about",
     "agb",
@@ -116,6 +123,8 @@ def filter_candidate_links(
         url = _without_fragment(link.url)
         haystack = f"{url.lower()} {link.text.lower()}"
         if not url.startswith(("http://", "https://")):
+            continue
+        if _is_blacklisted_domain(url):
             continue
         if any(part in haystack for part in NOISE_LINK_PARTS):
             continue
@@ -312,6 +321,17 @@ async def _extract_links(page) -> list[WebsiteLink]:
 
 def _looks_official_external(link: WebsiteLink) -> bool:
     return _has_information_signal(link)
+
+
+def _is_blacklisted_domain(url: str) -> bool:
+    host = urlparse(url).netloc.lower().split(":", 1)[0].removeprefix("www.")
+    return any(
+        host == domain
+        or host.endswith(f".{domain}")
+        or host == f"{domain}.com"
+        or host.endswith(f".{domain}.com")
+        for domain in BLACKLISTED_LINK_DOMAINS
+    )
 
 
 def _has_information_signal(link: WebsiteLink) -> bool:
