@@ -68,6 +68,7 @@ LINK_SELECTION_MAX_CANDIDATES = 25
 ADDRESS_FIELD_PREFIX = "address_"
 LLM_LIST_SELECTION_MISMATCH = "LLM response did not match list elements."
 LLM_CALL_TIMEOUT_SECONDS = 20.0
+REDUCED_PAGE_TEXT_TIMEOUT_MARKER = "\n\n[... middle 50% removed after LLM timeout ...]\n\n"
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
@@ -628,6 +629,7 @@ async def _extract_page_info(
     current_page: WebsitePage,
     progress: ProgressCallback | None,
     scope: str,
+    retry_with_reduced_text: bool = True,
 ) -> PageExtraction:
     formatted_fields = "\n".join(f"- {field}" for field in requested_fields)
     employees_guidance = ""
@@ -674,6 +676,21 @@ async def _extract_page_info(
             "page extraction",
         )
         if result is None:
+            if retry_with_reduced_text:
+                reduced_page = _page_with_reduced_timeout_retry_text(current_page)
+                if reduced_page.text != current_page.text:
+                    _report_reduced_page_text_retry(progress, scope, "page extraction")
+                    return await _extract_page_info(
+                        llm,
+                        parser,
+                        organization_name,
+                        website,
+                        requested_fields,
+                        reduced_page,
+                        progress,
+                        scope,
+                        retry_with_reduced_text=False,
+                    )
             return PageExtraction(reasoning="LLM timed out during page extraction.")
         return _parse_structured_result(result, PageExtraction, parser)
     except Exception as exc:  # noqa: BLE001
@@ -691,6 +708,7 @@ async def _extract_contact_info(
     progress: ProgressCallback | None,
     scope: str,
     country_focus_name: str | None = None,
+    retry_with_reduced_text: bool = True,
 ) -> ContactPageExtraction:
     formatted_fields = "\n".join(
         f"- {_contact_prompt_field_label(field)}" for field in requested_fields
@@ -729,6 +747,22 @@ async def _extract_contact_info(
             "contact extraction",
         )
         if result is None:
+            if retry_with_reduced_text:
+                reduced_page = _page_with_reduced_timeout_retry_text(current_page)
+                if reduced_page.text != current_page.text:
+                    _report_reduced_page_text_retry(progress, scope, "contact extraction")
+                    return await _extract_contact_info(
+                        llm,
+                        parser,
+                        organization_name,
+                        website,
+                        requested_fields,
+                        reduced_page,
+                        progress,
+                        scope,
+                        country_focus_name=country_focus_name,
+                        retry_with_reduced_text=False,
+                    )
             return ContactPageExtraction(reasoning="LLM timed out during contact extraction.")
         return _parse_structured_result(result, ContactPageExtraction, parser)
     except Exception as exc:  # noqa: BLE001
@@ -757,6 +791,7 @@ async def _extract_company_facts(
     progress: ProgressCallback | None,
     scope: str,
     country_focus_name: str | None = None,
+    retry_with_reduced_text: bool = True,
 ) -> CompanyFactsExtraction:
     formatted_fields = "\n".join(f"- {field}" for field in requested_fields)
     prompt = (
@@ -795,6 +830,22 @@ async def _extract_company_facts(
             "company facts extraction",
         )
         if result is None:
+            if retry_with_reduced_text:
+                reduced_page = _page_with_reduced_timeout_retry_text(current_page)
+                if reduced_page.text != current_page.text:
+                    _report_reduced_page_text_retry(progress, scope, "company facts extraction")
+                    return await _extract_company_facts(
+                        llm,
+                        parser,
+                        organization_name,
+                        website,
+                        requested_fields,
+                        reduced_page,
+                        progress,
+                        scope,
+                        country_focus_name=country_focus_name,
+                        retry_with_reduced_text=False,
+                    )
             return CompanyFactsExtraction(reasoning="LLM timed out during company facts extraction.")
         return _parse_structured_result(result, CompanyFactsExtraction, parser)
     except Exception as exc:  # noqa: BLE001
@@ -824,6 +875,21 @@ async def _extract_description(
     ]
     report(progress, scope, "Calling LLM for description...")
     response = await _ainvoke_llm_with_timeout(llm, messages, progress, scope, "description")
+    if response is None:
+        reduced_text = _reduced_timeout_retry_text(current_page.text)
+        if reduced_text != current_page.text:
+            _report_reduced_page_text_retry(progress, scope, "description")
+            retry_messages = [
+                SystemMessage(content=prompt),
+                HumanMessage(content=reduced_text),
+            ]
+            response = await _ainvoke_llm_with_timeout(
+                llm,
+                retry_messages,
+                progress,
+                scope,
+                "description reduced-text retry",
+            )
     if response is None:
         return ""
     return str(response.content)
@@ -905,21 +971,26 @@ async def _extract_legal_structure(
     if not legal_structures:
         return None
 
-    prompt = (
-        "Classify the organization into exactly one legal structure.\n\n"
-        f"Allowed answers:\n{_candidate_lines(legal_structures)}\n\n"
-        "Rules:\n"
-        "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
-        "- If the organization name contains AG or SA, choose Company Limited by Shares (AG / SA) when that allowed answer exists.\n"
-        "- If the organization name contains GmbH or Sàrl, choose Limited Liability Company (GmbH / Sàrl) when that allowed answer exists.\n"
-        "- If none is supported by the current page text, return NONE.\n"
-        "- Do not quote text from the page.\n"
-        "- Do not return JSON.\n"
-        "- Do not explain.\n"
-        "- Do not return the candidate list.\n"
-        "- Do not return any sentence from the page.\n\n"
-        f"Current page text:\n{page_text}"
-    )
+    def prompt_for(text: str) -> str:
+        return (
+            "Classify the organization into exactly one legal structure.\n\n"
+            f"Allowed answers:\n{_candidate_lines(legal_structures)}\n\n"
+            "Rules:\n"
+            "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
+            "- If the organization name contains AG or SA, choose Company Limited by Shares (AG / SA) when that allowed answer exists.\n"
+            "- If the organization name contains GmbH or Sàrl, choose Limited Liability Company (GmbH / Sàrl) when that allowed answer exists.\n"
+            "- If none is supported by the current page text, return NONE.\n"
+            "- Do not quote text from the page.\n"
+            "- Do not return JSON.\n"
+            "- Do not explain.\n"
+            "- Do not return the candidate list.\n"
+            "- Do not return any sentence from the page.\n\n"
+            f"Current page text:\n{text}"
+        )
+
+    prompt = prompt_for(page_text)
+    reduced_text = _reduced_timeout_retry_text(page_text)
+    timeout_retry_prompt = prompt_for(reduced_text) if reduced_text != page_text else None
     report(progress, scope, "Calling LLM for legal_structure selection...")
     return await _select_single_candidate(
         llm,
@@ -928,6 +999,7 @@ async def _extract_legal_structure(
         "legal_structure",
         progress,
         scope,
+        timeout_retry_prompt=timeout_retry_prompt,
     )
 
 
@@ -943,23 +1015,36 @@ async def _extract_sector(
     if not sectors:
         return None
 
-    prompt = (
-        "Classify the organization into exactly one economic sector.\n\n"
-        f"Allowed answers:\n{_candidate_lines(sectors)}\n\n"
-        "Rules:\n"
-        "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
-        "- Base the choice on what the organization does.\n"
-        "- If none fits the organization context, return NONE.\n"
-        "- Do not quote text from the page.\n"
-        "- Do not return JSON.\n"
-        "- Do not explain.\n"
-        "- Do not return the candidate list.\n"
-        "- Do not return any sentence from the page.\n\n"
-        f"Organization description:\n{description}\n\n"
-        f"Current page text:\n{page_text}"
-    )
+    def prompt_for(text: str) -> str:
+        return (
+            "Classify the organization into exactly one economic sector.\n\n"
+            f"Allowed answers:\n{_candidate_lines(sectors)}\n\n"
+            "Rules:\n"
+            "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
+            "- Base the choice on what the organization does.\n"
+            "- If none fits the organization context, return NONE.\n"
+            "- Do not quote text from the page.\n"
+            "- Do not return JSON.\n"
+            "- Do not explain.\n"
+            "- Do not return the candidate list.\n"
+            "- Do not return any sentence from the page.\n\n"
+            f"Organization description:\n{description}\n\n"
+            f"Current page text:\n{text}"
+        )
+
+    prompt = prompt_for(page_text)
+    reduced_text = _reduced_timeout_retry_text(page_text)
+    timeout_retry_prompt = prompt_for(reduced_text) if reduced_text != page_text else None
     report(progress, scope, "Calling LLM for sector selection...")
-    return await _select_single_candidate(llm, prompt, sectors, "sector", progress, scope)
+    return await _select_single_candidate(
+        llm,
+        prompt,
+        sectors,
+        "sector",
+        progress,
+        scope,
+        timeout_retry_prompt=timeout_retry_prompt,
+    )
 
 
 async def _extract_company_type(
@@ -974,20 +1059,25 @@ async def _extract_company_type(
     if not company_types:
         return None
 
-    prompt = (
-        "Classify the organization into exactly one organization type.\n\n"
-        f"Allowed answers:\n{_candidate_lines(company_types)}\n\n"
-        "Rules:\n"
-        "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
-        "- If the organization sells products or services commercially, choose Commercial Enterprise.\n"
-        "- If none fits the current page text, return NONE.\n"
-        "- Do not quote text from the page.\n"
-        "- Do not return JSON.\n"
-        "- Do not explain.\n"
-        "- Do not return the candidate list.\n"
-        "- Do not return any sentence from the page.\n\n"
-        f"Current page text:\n{page_text}"
-    )
+    def prompt_for(text: str) -> str:
+        return (
+            "Classify the organization into exactly one organization type.\n\n"
+            f"Allowed answers:\n{_candidate_lines(company_types)}\n\n"
+            "Rules:\n"
+            "- Your entire answer must be exactly one allowed answer copied verbatim, or NONE.\n"
+            "- If the organization sells products or services commercially, choose Commercial Enterprise.\n"
+            "- If none fits the current page text, return NONE.\n"
+            "- Do not quote text from the page.\n"
+            "- Do not return JSON.\n"
+            "- Do not explain.\n"
+            "- Do not return the candidate list.\n"
+            "- Do not return any sentence from the page.\n\n"
+            f"Current page text:\n{text}"
+        )
+
+    prompt = prompt_for(page_text)
+    reduced_text = _reduced_timeout_retry_text(page_text)
+    timeout_retry_prompt = prompt_for(reduced_text) if reduced_text != page_text else None
     report(progress, scope, "Calling LLM for company_type selection...")
     return await _select_single_candidate(
         llm,
@@ -996,6 +1086,7 @@ async def _extract_company_type(
         "company_type",
         progress,
         scope,
+        timeout_retry_prompt=timeout_retry_prompt,
     )
 
 
@@ -1010,10 +1101,25 @@ async def _select_single_candidate(
     field: str,
     progress: ProgressCallback | None,
     scope: str,
+    timeout_retry_prompt: str | None = None,
 ) -> str | None:
     messages = _fixed_list_selection_messages(prompt)
     response = await _ainvoke_llm_with_timeout(llm, messages, progress, scope, f"{field} selection")
     if response is None:
+        if timeout_retry_prompt is not None:
+            _report_reduced_page_text_retry(progress, scope, f"{field} selection")
+            retry_response = await _ainvoke_llm_with_timeout(
+                llm,
+                _fixed_list_selection_messages(timeout_retry_prompt),
+                progress,
+                scope,
+                f"{field} reduced-text retry",
+            )
+            if retry_response is None:
+                return None
+            retry_selected = _parse_single_candidate_response(_response_text(retry_response), candidates)
+            if retry_selected != LLM_LIST_SELECTION_MISMATCH:
+                return retry_selected
         return None
     response_text = _response_text(response)
     selected = _parse_single_candidate_response(response_text, candidates)
@@ -1103,6 +1209,30 @@ def _fixed_list_selection_messages(prompt: str) -> list:
         SystemMessage(content="You choose exact values from candidate lists."),
         HumanMessage(content=prompt),
     ]
+
+
+def _page_with_reduced_timeout_retry_text(page: WebsitePage) -> WebsitePage:
+    return page.model_copy(update={"text": _reduced_timeout_retry_text(page.text)})
+
+
+def _reduced_timeout_retry_text(text: str) -> str:
+    quarter = len(text) // 4
+    if quarter == 0:
+        return text
+    reduced = f"{text[:quarter]}{REDUCED_PAGE_TEXT_TIMEOUT_MARKER}{text[-quarter:]}"
+    return reduced if len(reduced) < len(text) else text
+
+
+def _report_reduced_page_text_retry(
+    progress: ProgressCallback | None,
+    scope: str,
+    label: str,
+) -> None:
+    report(
+        progress,
+        scope,
+        f"Retrying {label} with reduced page text after timeout: kept first 25% and last 25%.",
+    )
 
 
 async def _ainvoke_llm_with_timeout(

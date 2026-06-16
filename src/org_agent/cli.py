@@ -213,6 +213,7 @@ _ERROR_PROGRESS_PATTERNS = (
     "credentials are missing",
     "no registry integration is available",
     "page text limit reached",
+    "reduced page text after timeout",
     "removed email not found",
     "page could not be loaded",
     "could not be resolved",
