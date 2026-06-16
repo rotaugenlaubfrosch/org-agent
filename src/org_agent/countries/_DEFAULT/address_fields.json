@@ -11,6 +11,10 @@
     "prompt": "Extract the house or building number.",
     "validation": false
   },
+  "post_office_box": {
+    "prompt": "Extract the post office box if available. Otherwise keep it empty.",
+    "validation": false
+  },
   "postal_code": {
     "prompt": "Extract the postal code without country prefix.",
     "validation": false
