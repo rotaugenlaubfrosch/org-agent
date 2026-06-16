@@ -122,7 +122,7 @@ The crawler:
 - marks the website profile `status` as `FAILED` and stops website crawling if the first crawled page has 25 or fewer non-empty text lines and contains `forbidden`, `blocked`, or `denied` case-insensitively
 - waits briefly for the page to settle
 - scrolls the page to trigger lazy-loaded content
-- extracts visible body text
+- extracts visible body text, capped at 20,000 characters per page
 - extracts actual links from the page
 - removes obvious junk links such as carts, login pages, product detail pages, campaigns, and social media
 - keeps links with organization-information signals in the link text or URL, such as contact, imprint/legal, privacy, company/about, story, or terms
@@ -134,6 +134,8 @@ The crawler:
 - repeats page-by-page up to the configured crawl limits
 
 The crawl uses a hybrid approach. The `filter_links` node deterministically filters and orders candidate links before the LLM sees them. Candidate links must contain an organization-information signal in the URL or visible link text, such as contact, imprint/legal, privacy, company/about, story, or terms. The later `analyze_page` node receives at most the first 25 filtered and ordered links plus the fields still missing from the profile, then asks the LLM which links should be crawled next. The crawler processes queued links in breadth-first order and does not invent `/contact` or `/impressum` paths.
+
+If a page-text LLM call times out, the agent retries that prompt once with reduced page text. The retry keeps the first 25% and last 25% of the already-captured page text by character count and removes the middle 50%. The CLI prints this retry as an error-style red progress message.
 
 The website profile includes a final `status` field. It defaults to `SUCCESS`. It is set to `FAILED` only when the first crawled page looks like an access-block page by this deterministic rule: the extracted text has 25 or fewer non-empty lines and contains `forbidden`, `blocked`, or `denied` case-insensitively. In that case, website crawling stops before extraction. The field is visible in normal CLI output, raw `--json` output, and `experiments/evaluate_agent.py` output.
 
