@@ -40,6 +40,7 @@ from org_agent.graph import (
     _parse_single_candidate_response,
     _parse_structured_result,
     _queried_country_value,
+    _reduced_timeout_retry_text,
     run_lookup,
     _missing_registry_credentials_message,
     _missing_registry_integration_message,
@@ -143,6 +144,23 @@ class _SlowLLM:
     async def ainvoke(self, messages):
         await asyncio.sleep(1)
         return messages
+
+
+class _TimeoutThenTextLLM:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.messages = []
+
+    async def ainvoke(self, messages):
+        self.messages.append(messages)
+        if len(self.messages) == 1:
+            await asyncio.sleep(1)
+
+        class _Response:
+            def __init__(self, content: str) -> None:
+                self.content = content
+
+        return _Response(self.content)
 
 
 def test_load_industries_reads_comma_separated_file(tmp_path) -> None:
@@ -408,6 +426,21 @@ def test_parse_multiple_candidate_response_accepts_exact_lines_or_none() -> None
     )
 
 
+def test_reduced_timeout_retry_text_keeps_first_and_last_quarters() -> None:
+    text = "a" * 50 + "b" * 100 + "c" * 50
+
+    reduced = _reduced_timeout_retry_text(text)
+
+    assert reduced.startswith("a" * 50)
+    assert reduced.endswith("c" * 50)
+    assert "middle 50% removed after LLM timeout" in reduced
+    assert "b" not in reduced
+
+
+def test_reduced_timeout_retry_text_keeps_short_text_unchanged() -> None:
+    assert _reduced_timeout_retry_text("short text") == "short text"
+
+
 def test_extract_description_timeout_returns_empty_string(monkeypatch) -> None:
     messages: list[tuple[str, str]] = []
     monkeypatch.setattr("org_agent.graph.LLM_CALL_TIMEOUT_SECONDS", 0.01)
@@ -425,6 +458,35 @@ def test_extract_description_timeout_returns_empty_string(monkeypatch) -> None:
 
     assert description == ""
     assert messages[-1] == ("analyze_page", "LLM timed out after 20 seconds: description.")
+
+
+def test_extract_description_retries_timeout_with_reduced_page_text(monkeypatch) -> None:
+    messages: list[tuple[str, str]] = []
+    monkeypatch.setattr("org_agent.graph.LLM_CALL_TIMEOUT_SECONDS", 0.01)
+    llm = _TimeoutThenTextLLM("Reduced description")
+    page_text = "a" * 100 + "MIDDLE" * 100 + "z" * 100
+
+    description = asyncio.run(
+        _extract_description(
+            llm,
+            "Describe [Account Name].",
+            "Example Ltd",
+            WebsitePage(url="https://example.com", text=page_text),
+            lambda scope, message: messages.append((scope, message)),
+            "analyze_page",
+        )
+    )
+
+    retry_text = llm.messages[1][-1].content
+    assert description == "Reduced description"
+    assert len(llm.messages) == 2
+    assert retry_text.startswith("a")
+    assert retry_text.endswith("z")
+    assert "middle 50% removed after LLM timeout" in retry_text
+    assert (
+        "analyze_page",
+        "Retrying description with reduced page text after timeout: kept first 25% and last 25%.",
+    ) in messages
 
 
 def test_select_single_candidate_timeout_returns_none(monkeypatch) -> None:

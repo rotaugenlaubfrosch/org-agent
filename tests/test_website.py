@@ -1,5 +1,5 @@
 from org_agent.models import WebsiteLink
-from org_agent.website import filter_candidate_links
+from org_agent.website import PAGE_TEXT_CHAR_LIMIT, _limit_page_text, filter_candidate_links
 
 
 def test_filter_candidate_links_removes_shop_and_keeps_info_links() -> None:
@@ -97,6 +97,108 @@ def test_filter_candidate_links_orders_text_keyword_matches_first() -> None:
     )
 
     assert [link.text for link in candidates] == ["Contact", "About us", "Reach us"]
+
+
+def test_filter_candidate_links_removes_blacklisted_domains() -> None:
+    links = [
+        WebsiteLink(
+            url="https://www.google.com/search?q=example+contact",
+            text="Contact",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://mailchimp.com/legal/privacy/",
+            text="Privacy",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://x.com/example/about",
+            text="About",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://twitter.com/example/contact",
+            text="Contact",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://instagram.com/example/contact",
+            text="Contact",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://example.com/contact",
+            text="Contact",
+            area="navigation",
+        ),
+    ]
+
+    candidates = filter_candidate_links(
+        links,
+        root_url="https://example.com",
+        current_url="https://example.com",
+    )
+
+    assert [link.url for link in candidates] == ["https://example.com/contact"]
+
+
+def test_filter_candidate_links_removes_pdfs() -> None:
+    links = [
+        WebsiteLink(
+            url="https://example.com/legal/privacy-policy.pdf",
+            text="Privacy policy",
+            area="navigation",
+        ),
+        WebsiteLink(
+            url="https://example.com/legal/privacy",
+            text="Privacy policy",
+            area="navigation",
+        ),
+    ]
+
+    candidates = filter_candidate_links(
+        links,
+        root_url="https://example.com",
+        current_url="https://example.com",
+    )
+
+    assert [link.url for link in candidates] == ["https://example.com/legal/privacy"]
+
+
+def test_limit_page_text_reports_when_truncated() -> None:
+    messages: list[tuple[str, str]] = []
+    text = "x" * (PAGE_TEXT_CHAR_LIMIT + 1)
+
+    limited = _limit_page_text(
+        text,
+        lambda step, message: messages.append((step, message)),
+        "crawl_page",
+        "https://example.com",
+    )
+
+    assert limited == text[:PAGE_TEXT_CHAR_LIMIT]
+    assert messages == [
+        (
+            "crawl_page",
+            "Page text limit reached for https://example.com: truncated extracted text "
+            f"from {PAGE_TEXT_CHAR_LIMIT + 1} to {PAGE_TEXT_CHAR_LIMIT} chars.",
+        )
+    ]
+
+
+def test_limit_page_text_does_not_report_when_within_limit() -> None:
+    messages: list[tuple[str, str]] = []
+    text = "x" * PAGE_TEXT_CHAR_LIMIT
+
+    limited = _limit_page_text(
+        text,
+        lambda step, message: messages.append((step, message)),
+        "crawl_page",
+        "https://example.com",
+    )
+
+    assert limited == text
+    assert messages == []
 
 
 def test_filter_candidate_links_prioritizes_country_branch_before_keyword_matches() -> None:
