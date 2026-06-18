@@ -122,7 +122,7 @@ The crawler:
 - marks the website profile `status` as `FAILED` and stops website crawling if the first crawled page has 25 or fewer non-empty text lines and contains `forbidden`, `blocked`, or `denied` case-insensitively
 - waits briefly for the page to settle
 - scrolls the page to trigger lazy-loaded content
-- extracts visible body text, capped at 20,000 characters per page
+- extracts visible body text, removes words longer than 25 characters, and caps the result at 20,000 characters per page
 - extracts actual links from the page
 - removes obvious junk links such as carts, login pages, product detail pages, campaigns, and social media
 - keeps links with organization-information signals in the link text or URL, such as contact, imprint/legal, privacy, company/about, story, or terms
