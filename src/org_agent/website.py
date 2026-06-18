@@ -9,6 +9,7 @@ from org_agent.models import CrawlNode, WebsiteLink, WebsitePage
 from org_agent.progress import ProgressCallback, report
 
 PAGE_TEXT_CHAR_LIMIT = 20000
+MAX_CRAWLED_TEXT_WORD_LENGTH = 25
 
 NOISE_LINK_PARTS = (
     "/account",
@@ -101,6 +102,7 @@ async def fetch_page_with_playwright(
                 title = await page.title()
                 text = await _extract_visible_text_with_contact_hrefs(page)
                 cleaned = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+                cleaned = _remove_long_words_from_text(cleaned)
                 links = await _extract_links(page)
             finally:
                 await context.close()
@@ -130,6 +132,18 @@ def _limit_page_text(
         f"from {len(text)} to {PAGE_TEXT_CHAR_LIMIT} chars.",
     )
     return text[:PAGE_TEXT_CHAR_LIMIT]
+
+
+def _remove_long_words_from_text(
+    text: str,
+    max_length: int = MAX_CRAWLED_TEXT_WORD_LENGTH,
+) -> str:
+    lines = []
+    for line in text.splitlines():
+        kept_words = [word for word in line.split() if len(word.strip(".,;:!?()[]{}<>\"'")) <= max_length]
+        if kept_words:
+            lines.append(" ".join(kept_words))
+    return "\n".join(lines)
 
 
 def filter_candidate_links(
