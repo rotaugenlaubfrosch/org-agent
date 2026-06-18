@@ -1,5 +1,11 @@
 from org_agent.models import WebsiteLink
-from org_agent.website import PAGE_TEXT_CHAR_LIMIT, _limit_page_text, filter_candidate_links
+from org_agent.website import (
+    MAX_CRAWLED_TEXT_WORD_LENGTH,
+    PAGE_TEXT_CHAR_LIMIT,
+    _limit_page_text,
+    _remove_long_words_from_text,
+    filter_candidate_links,
+)
 
 
 def test_filter_candidate_links_removes_shop_and_keeps_info_links() -> None:
@@ -199,6 +205,30 @@ def test_limit_page_text_does_not_report_when_within_limit() -> None:
 
     assert limited == text
     assert messages == []
+
+
+def test_remove_long_words_from_text_removes_words_longer_than_limit() -> None:
+    long_word = "x" * (MAX_CRAWLED_TEXT_WORD_LENGTH + 1)
+
+    cleaned = _remove_long_words_from_text(f"Keep {long_word} this")
+
+    assert cleaned == "Keep this"
+
+
+def test_remove_long_words_from_text_keeps_words_at_limit() -> None:
+    boundary_word = "x" * MAX_CRAWLED_TEXT_WORD_LENGTH
+
+    cleaned = _remove_long_words_from_text(f"Keep {boundary_word}")
+
+    assert cleaned == f"Keep {boundary_word}"
+
+
+def test_remove_long_words_from_text_preserves_lines_with_remaining_words() -> None:
+    long_word = "x" * (MAX_CRAWLED_TEXT_WORD_LENGTH + 1)
+
+    cleaned = _remove_long_words_from_text(f"First line\n{long_word}\nSecond line")
+
+    assert cleaned == "First line\nSecond line"
 
 
 def test_filter_candidate_links_prioritizes_country_branch_before_keyword_matches() -> None:
