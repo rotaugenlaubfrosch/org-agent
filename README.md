@@ -135,7 +135,7 @@ The crawler:
 
 The crawl uses a hybrid approach. The `filter_links` node deterministically filters and orders candidate links before the LLM sees them. Candidate links must contain an organization-information signal in the URL or visible link text, such as contact, imprint/legal, privacy, company/about, story, or terms. The later `analyze_page` node receives at most the first 25 filtered and ordered links plus the fields still missing from the profile, then asks the LLM which links should be crawled next. The crawler processes queued links in breadth-first order and does not invent `/contact` or `/impressum` paths.
 
-If a page-text LLM call times out, the agent retries that prompt once with reduced page text. The retry keeps the first 25% and last 25% of the already-captured page text by character count and removes the middle 50%. The CLI prints this retry as an error-style red progress message.
+If a page-text LLM call times out, the agent retries that prompt once with reduced page text. The retry keeps the first 25% and last 25% of the already-captured page text by character count and removes the middle 50%. The CLI prints this retry as an error-style red progress message. However, as I could observe so far, this does not mitigate the LLM timeout problem so far.
 
 The website profile includes a final `status` field. It defaults to `SUCCESS`. It is set to `FAILED` only when the first crawled page looks like an access-block page by this deterministic rule: the extracted text has 25 or fewer non-empty lines and contains `forbidden`, `blocked`, or `denied` case-insensitively. In that case, website crawling stops before extraction. The field is visible in normal CLI output, raw `--json` output, and `experiments/evaluate_agent.py` output.
 
