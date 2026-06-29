@@ -69,6 +69,7 @@ def test_progress_error_classifier_flags_error_like_messages() -> None:
     assert cli._is_error_progress_message("LLM timed out after 20 seconds: description.")
     assert cli._is_error_progress_message("Structured link selection failed; retrying with JSON prompt.")
     assert cli._is_error_progress_message("Registry lookup was not called because CH registry credentials are missing.")
+    assert cli._is_error_progress_message("Removed invalid email address: Contact form")
     assert cli._is_error_progress_message("Removed email not found in crawled website pages: info@example.com")
     assert cli._is_error_progress_message("Page text limit reached for https://example.com: truncated extracted text from 20001 to 20000 chars.")
     assert cli._is_error_progress_message("Retrying description with reduced page text after timeout: kept first 25% and last 25%.")

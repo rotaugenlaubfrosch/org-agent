@@ -214,6 +214,7 @@ _ERROR_PROGRESS_PATTERNS = (
     "no registry integration is available",
     "page text limit reached",
     "reduced page text after timeout",
+    "removed invalid email address",
     "removed email not found",
     "page could not be loaded",
     "could not be resolved",

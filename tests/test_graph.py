@@ -1415,6 +1415,31 @@ def test_validate_profile_email_removes_email_absent_from_website_pages() -> Non
     assert [entry.field for entry in profile.evidence] == ["country"]
 
 
+def test_validate_profile_email_removes_invalid_email_before_website_text_check() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        email="Contact form",
+        evidence=[
+            EvidenceEntry(field="email", value="Contact form", reasoning="Found on page."),
+            EvidenceEntry(field="country", value="Switzerland", reasoning="Found on page."),
+        ],
+    )
+    pages = [WebsitePage(url="https://example.com", text="Contact: Contact form")]
+
+    _validate_profile_email(profile, pages)
+
+    assert profile.email is None
+    assert [entry.field for entry in profile.evidence] == ["country"]
+
+
+def test_validate_profile_email_removes_invalid_email_without_website_pages() -> None:
+    profile = OrganizationProfile(queried_name="Example Ltd", email="info at example dot com")
+
+    _validate_profile_email(profile, [])
+
+    assert profile.email is None
+
+
 def test_validate_profile_email_ignores_empty_website_pages() -> None:
     profile = OrganizationProfile(queried_name="Example Ltd", email="info@example.com")
 

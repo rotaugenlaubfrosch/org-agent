@@ -69,6 +69,7 @@ ADDRESS_FIELD_PREFIX = "address_"
 LLM_LIST_SELECTION_MISMATCH = "LLM response did not match list elements."
 LLM_CALL_TIMEOUT_SECONDS = 20.0
 REDUCED_PAGE_TEXT_TIMEOUT_MARKER = "\n\n[... middle 50% removed after LLM timeout ...]\n\n"
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
@@ -528,6 +529,8 @@ def build_graph(
             stripped_email = email_before.strip()
             if not stripped_email:
                 report(progress, "validate_profile", "Removed blank email.")
+            elif not _is_valid_email(stripped_email):
+                report(progress, "validate_profile", f"Removed invalid email address: {stripped_email}")
             elif state.profile.email is None:
                 report(
                     progress,
@@ -1939,13 +1942,17 @@ def _normalize_country(value: str | None) -> str | None:
 
 
 def _validate_profile_email(profile: OrganizationProfile, website_pages: list[WebsitePage]) -> None:
-    if not profile.email or not website_pages:
+    if not profile.email:
         return
 
     email = profile.email.strip()
-    if not email:
+    if not email or not _is_valid_email(email):
         profile.email = None
         profile.evidence = [entry for entry in profile.evidence if entry.field != "email"]
+        return
+
+    if not website_pages:
+        profile.email = email
         return
 
     source_text = "\n".join(page.text for page in website_pages).lower()
@@ -1955,6 +1962,10 @@ def _validate_profile_email(profile: OrganizationProfile, website_pages: list[We
 
     profile.email = None
     profile.evidence = [entry for entry in profile.evidence if entry.field != "email"]
+
+
+def _is_valid_email(email: str) -> bool:
+    return EMAIL_PATTERN.fullmatch(email) is not None
 
 
 def _report_filled_fields(
