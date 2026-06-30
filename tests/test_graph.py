@@ -1398,6 +1398,51 @@ def test_validate_profile_email_matches_case_insensitively() -> None:
     assert profile.email == "Info@Example.com"
 
 
+def test_validate_profile_email_normalizes_obfuscated_email_present_in_website_pages() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        email="info <at> example (dot) com",
+        evidence=[
+            EvidenceEntry(
+                field="email",
+                value="info <at> example (dot) com",
+                reasoning="Found on page.",
+            )
+        ],
+    )
+    pages = [
+        WebsitePage(url="https://example.com", text="Contact: info <at> example (dot) com")
+    ]
+
+    _validate_profile_email(profile, pages)
+
+    assert profile.email == "info@example.com"
+    assert [entry.field for entry in profile.evidence] == ["email"]
+
+
+def test_validate_profile_email_normalizes_obfuscated_email_with_spaced_markers() -> None:
+    profile = OrganizationProfile(
+        queried_name="Example Ltd",
+        email="info [at] example [dot] com",
+    )
+    pages = [
+        WebsitePage(url="https://example.com", text="Contact: info [at] example [dot] com")
+    ]
+
+    _validate_profile_email(profile, pages)
+
+    assert profile.email == "info@example.com"
+
+
+def test_validate_profile_email_allows_normalized_email_presence_fallback() -> None:
+    profile = OrganizationProfile(queried_name="Example Ltd", email="info (at) example <dot> com")
+    pages = [WebsitePage(url="https://example.com", text="Contact: info@example.com")]
+
+    _validate_profile_email(profile, pages)
+
+    assert profile.email == "info@example.com"
+
+
 def test_validate_profile_email_removes_email_absent_from_website_pages() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",

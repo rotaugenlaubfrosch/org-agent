@@ -70,6 +70,8 @@ LLM_LIST_SELECTION_MISMATCH = "LLM response did not match list elements."
 LLM_CALL_TIMEOUT_SECONDS = 20.0
 REDUCED_PAGE_TEXT_TIMEOUT_MARKER = "\n\n[... middle 50% removed after LLM timeout ...]\n\n"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+OBFUSCATED_EMAIL_AT_PATTERN = re.compile(r"\s*[\[\(<]\s*at\s*[\]\)>]\s*", re.IGNORECASE)
+OBFUSCATED_EMAIL_DOT_PATTERN = re.compile(r"\s*[\[\(<]\s*dot\s*[\]\)>]\s*", re.IGNORECASE)
 
 NO_REGISTRY_LEGAL_ADDRESS_MESSAGE = (
     "No third-party registry was attached; legal_address can only be provided by a registry."
@@ -529,7 +531,7 @@ def build_graph(
             stripped_email = email_before.strip()
             if not stripped_email:
                 report(progress, "validate_profile", "Removed blank email.")
-            elif not _is_valid_email(stripped_email):
+            elif not _is_valid_email(_normalize_obfuscated_email(stripped_email)):
                 report(progress, "validate_profile", f"Removed invalid email address: {stripped_email}")
             elif state.profile.email is None:
                 report(
@@ -542,7 +544,7 @@ def build_graph(
                     report(
                         progress,
                         "validate_profile",
-                        f"Trimmed email whitespace: {email_before} -> {state.profile.email}",
+                        f"Normalized email: {email_before} -> {state.profile.email}",
                     )
                 report(progress, "validate_profile", "Validated email: Found in crawled text")
         await _fragment_profile_address(llm, state.profile, country, progress, "validate_profile")
@@ -1945,7 +1947,8 @@ def _validate_profile_email(profile: OrganizationProfile, website_pages: list[We
     if not profile.email:
         return
 
-    email = profile.email.strip()
+    original_email = profile.email.strip()
+    email = _normalize_obfuscated_email(original_email)
     if not email or not _is_valid_email(email):
         profile.email = None
         profile.evidence = [entry for entry in profile.evidence if entry.field != "email"]
@@ -1956,7 +1959,7 @@ def _validate_profile_email(profile: OrganizationProfile, website_pages: list[We
         return
 
     source_text = "\n".join(page.text for page in website_pages).lower()
-    if email.lower() in source_text:
+    if original_email.lower() in source_text or email.lower() in source_text:
         profile.email = email
         return
 
@@ -1966,6 +1969,11 @@ def _validate_profile_email(profile: OrganizationProfile, website_pages: list[We
 
 def _is_valid_email(email: str) -> bool:
     return EMAIL_PATTERN.fullmatch(email) is not None
+
+
+def _normalize_obfuscated_email(email: str) -> str:
+    email = OBFUSCATED_EMAIL_AT_PATTERN.sub("@", email.strip())
+    return OBFUSCATED_EMAIL_DOT_PATTERN.sub(".", email)
 
 
 def _report_filled_fields(
