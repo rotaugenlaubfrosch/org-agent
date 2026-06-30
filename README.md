@@ -39,6 +39,7 @@ Create a `.env` file in the project root.
 ORG_AGENT_LLM_PROVIDER=openai|anthropic|ollama
 ORG_AGENT_LLM_MODEL=<model name>
 
+O
 # Required for OpenAI/Anthropic:
 ORG_AGENT_API_KEY=<provider API key>
 
