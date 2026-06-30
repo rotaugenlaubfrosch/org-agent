@@ -4,7 +4,6 @@ import json
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 from org_agent.api import lookup_organization
@@ -123,10 +122,6 @@ def _print_lookup_result(result: LookupResult) -> None:
             result.registry_message or "Registry lookup did not produce a registry profile."
         )
 
-    _print_evidence_panel("Website Evidence", result.website_profile)
-    if result.registry_profile is not None:
-        _print_evidence_panel("Registry Evidence", result.registry_profile)
-
 
 def _print_profile_table(title: str, profile: OrganizationProfile, fields: tuple[str, ...]) -> None:
     table = Table(title=title, show_header=True, header_style="bold")
@@ -153,17 +148,6 @@ def _print_registry_status_table(message: str) -> None:
     table.add_column("Value")
     table.add_row("status", message)
     console.print(table)
-
-
-def _print_evidence_panel(title: str, profile: OrganizationProfile) -> None:
-    lines = []
-    for entry in profile.evidence:
-        parts = []
-        if entry.source:
-            parts.append(f"Source: {entry.source}.")
-        parts.append(entry.reasoning)
-        lines.append(f"[bold]{entry.field}[/bold]: {' '.join(parts)}")
-    console.print(Panel("\n".join(lines) or "No evidence entries returned.", title=title))
 
 
 def _make_progress_logger():

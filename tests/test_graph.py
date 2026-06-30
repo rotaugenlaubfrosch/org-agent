@@ -63,7 +63,6 @@ from org_agent.models import (
     CompanyFactsExtraction,
     CrawlDecision,
     CrawlTarget,
-    EvidenceEntry,
     LookupInput,
     OrganizationProfile,
     OrganizationProfilePatch,
@@ -94,7 +93,7 @@ class _CapturingStructuredLLM:
 
     async def ainvoke(self, messages):
         self.messages = messages
-        return self.model_type(reasoning="No values on page.")
+        return self.model_type()
 
 
 class _CapturingCrawlDecisionLLM:
@@ -106,7 +105,7 @@ class _CapturingCrawlDecisionLLM:
 
     async def ainvoke(self, messages):
         self.messages = messages
-        return CrawlDecision(is_complete=False, reasoning="Selected no links.")
+        return CrawlDecision(is_complete=False)
 
 
 class _AddressFragmentationLLM:
@@ -298,10 +297,8 @@ def test_fragment_profile_address_keeps_address_and_reports_llm_output() -> None
     }
     assert llm.messages is not None
     assert "address_city" in llm.messages[-1].content
-    assert reports[0] == (
-        "validate_profile",
-        "Address fields country source: explicit --country=ch -> ch.",
-    )
+    assert reports[0][0] == "validate_profile"
+    assert reports[0][1].startswith("Address fields country source: explicit --country=ch -> ch")
     assert reports[1][0] == "validate_profile"
     assert "Therefore, using address fields config:" in reports[1][1]
     assert "Address fragmentation LLM output:" in reports[-1][1]
@@ -326,9 +323,9 @@ def test_fragment_profile_address_reports_profile_country_fallback() -> None:
         )
     )
 
-    assert reports[0] == (
-        "validate_profile",
-        "Address fields country source: extracted profile.address_country=Switzerland -> ch.",
+    assert reports[0][0] == "validate_profile"
+    assert reports[0][1].startswith(
+        "Address fields country source: extracted profile.address_country=Switzerland -> ch"
     )
     assert "Therefore, using address fields config:" in reports[1][1]
     assert profile.address_fields == {"address_city": "Zürich"}
@@ -680,7 +677,6 @@ def test_parse_crawl_decision_accepts_schema_like_properties_wrapper() -> None:
             "properties": {
                 "is_complete": False,
                 "selected_urls": ["https://example.com/about"],
-                "reasoning": "The about page is likely useful.",
             },
         },
         parser,
@@ -688,7 +684,6 @@ def test_parse_crawl_decision_accepts_schema_like_properties_wrapper() -> None:
 
     assert decision.is_complete is False
     assert decision.selected_urls == ["https://example.com/about"]
-    assert decision.reasoning == "The about page is likely useful."
 
 
 def test_parse_page_extraction_accepts_schema_like_properties_wrapper() -> None:
@@ -698,15 +693,7 @@ def test_parse_page_extraction_accepts_schema_like_properties_wrapper() -> None:
         {
             "properties": {
                 "profile_patch": {"address": "Example Street 1"},
-                "evidence": [
-                    {
-                        "field": "address",
-                        "value": "Example Street 1",
-                        "reasoning": "Found on the contact page.",
-                    }
-                ],
                 "missing_fields": ["email"],
-                "reasoning": "Extracted address from page content.",
             },
         },
         PageExtraction,
@@ -714,9 +701,7 @@ def test_parse_page_extraction_accepts_schema_like_properties_wrapper() -> None:
     )
 
     assert extraction.profile_patch.address == "Example Street 1"
-    assert [entry.field for entry in extraction.evidence] == ["address"]
     assert extraction.missing_fields == ["email"]
-    assert extraction.reasoning == "Extracted address from page content."
 
 
 def test_extract_page_info_prompt_excludes_registry_results() -> None:
@@ -741,7 +726,8 @@ def test_extract_page_info_prompt_excludes_registry_results() -> None:
     assert "Current page:" in prompt
     assert "Registry results:" not in prompt
     assert "Do not summarize the page." in prompt
-    assert "No requested profile fields found." in prompt
+    assert "evidence" not in prompt.lower()
+    assert "reasoning" not in prompt.lower()
 
 
 def test_extract_page_info_prompt_includes_employees_guidance() -> None:
@@ -984,7 +970,6 @@ def test_run_lookup_sets_failed_status_for_blocked_first_page(monkeypatch) -> No
     )
 
     assert result.website_profile.status == "FAILED"
-    assert result.website_profile.evidence == []
 
 
 def test_missing_profile_fields_returns_only_empty_extractable_fields() -> None:
@@ -1041,24 +1026,13 @@ def test_keep_requested_extraction_fields_removes_unrequested_values() -> None:
             address="Example Street 1",
             phone="+1 555 0100",
         ),
-        evidence=[
-            EvidenceEntry(
-                field="official_company_name",
-                value="Example Ltd Official",
-                reasoning="Found on page.",
-            ),
-            EvidenceEntry(field="address", value="Example Street 1", reasoning="Found on page."),
-            EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found on page."),
-        ],
         missing_fields=["address", "phone", "email"],
-        reasoning="Extracted fields.",
     )
 
     _keep_requested_extraction_fields(extraction, ["address", "email"])
 
     assert extraction.profile_patch.address == "Example Street 1"
     assert extraction.profile_patch.phone is None
-    assert [entry.field for entry in extraction.evidence] == ["address"]
     assert extraction.missing_fields == ["address", "email"]
 
 
@@ -1072,14 +1046,6 @@ def test_fill_registry_only_field_messages_sets_no_registry_messages() -> None:
     assert profile.purpose == NO_REGISTRY_PURPOSE_MESSAGE
     assert profile.registration_id == NO_REGISTRY_REGISTRATION_ID_MESSAGE
     assert profile.region == NO_REGISTRY_REGION_MESSAGE
-    assert [entry.field for entry in profile.evidence] == [
-        "official_company_name",
-        "registration_id",
-        "legal_address",
-        "purpose",
-        "region",
-    ]
-    assert all(entry.source == "agent" for entry in profile.evidence)
 
 
 def test_fill_registry_only_field_messages_skips_when_registry_results_exist() -> None:
@@ -1161,20 +1127,6 @@ def test_build_registry_profile_keeps_registry_fields_separate() -> None:
             phone="+1 555 9999",
             country="Switzerland",
         ),
-        evidence=[
-            EvidenceEntry(
-                field="official_company_name",
-                value="Example Ltd Official",
-                source="https://registry.example/detail",
-                reasoning="Extracted from registry.",
-            ),
-            EvidenceEntry(
-                field="phone",
-                value="+1 555 9999",
-                source="https://registry.example/detail",
-                reasoning="Extracted from registry.",
-            ),
-        ],
     )
 
     profile = _build_registry_profile("Example Ltd", "ch", [registry_result])
@@ -1185,10 +1137,6 @@ def test_build_registry_profile_keeps_registry_fields_separate() -> None:
     assert profile.official_company_name == "Example Ltd Official"
     assert profile.country == "Switzerland"
     assert profile.phone == "+1 555 9999"
-    assert [entry.field for entry in profile.evidence] == [
-        "official_company_name",
-        "phone",
-    ]
 
 
 def test_build_registry_profile_returns_none_without_registry_values() -> None:
@@ -1290,21 +1238,15 @@ def test_normalize_country_keeps_unknown_values() -> None:
     assert _normalize_country(None) is None
 
 
-def test_normalize_profile_country_updates_profile_and_evidence() -> None:
+def test_normalize_profile_country_updates_profile() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
         country="CHE",
-        evidence=[
-            EvidenceEntry(field="country", value="CH", reasoning="Found on page."),
-            EvidenceEntry(field="email", value="info@example.com", reasoning="Found on page."),
-        ],
     )
 
     _normalize_profile_country(profile)
 
     assert profile.country == "Switzerland"
-    assert profile.evidence[0].value == "Switzerland"
-    assert profile.evidence[1].value == "info@example.com"
 
 
 def test_country_from_address_uses_explicit_country_name() -> None:
@@ -1334,9 +1276,6 @@ def test_derive_profile_country_from_address_sets_address_country() -> None:
     assert derived_country == "Liechtenstein"
     assert profile.address_country == "Liechtenstein"
     assert profile.country is None
-    assert profile.evidence[-1].field == "address_country"
-    assert profile.evidence[-1].value == "Liechtenstein"
-    assert profile.evidence[-1].source == "agent"
 
 
 def test_derive_profile_country_from_address_overrides_draft_address_country() -> None:
@@ -1344,22 +1283,12 @@ def test_derive_profile_country_from_address_overrides_draft_address_country() -
         queried_name="Hilti Corporation",
         address_country="Switzerland",
         address="Feldkircher Strasse 100, Postfach 333, 9494 Schaan, Liechtenstein",
-        evidence=[
-            EvidenceEntry(
-                field="address_country",
-                value="Switzerland",
-                reasoning="Drafted from company facts.",
-            )
-        ],
     )
 
     derived_country = _derive_profile_country_from_address(profile)
 
     assert derived_country == "Liechtenstein"
     assert profile.address_country == "Liechtenstein"
-    assert [entry.value for entry in profile.evidence if entry.field == "address_country"] == [
-        "Liechtenstein"
-    ]
 
 
 def test_derive_profile_country_from_address_keeps_draft_without_country_signal() -> None:
@@ -1379,14 +1308,12 @@ def test_validate_profile_email_keeps_email_present_in_website_pages() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
         email=" info@example.com ",
-        evidence=[EvidenceEntry(field="email", value="info@example.com", reasoning="Found on page.")],
     )
     pages = [WebsitePage(url="https://example.com", text="Contact us at info@example.com.")]
 
     _validate_profile_email(profile, pages)
 
     assert profile.email == "info@example.com"
-    assert [entry.field for entry in profile.evidence] == ["email"]
 
 
 def test_validate_profile_email_matches_case_insensitively() -> None:
@@ -1402,13 +1329,6 @@ def test_validate_profile_email_normalizes_obfuscated_email_present_in_website_p
     profile = OrganizationProfile(
         queried_name="Example Ltd",
         email="info <at> example (dot) com",
-        evidence=[
-            EvidenceEntry(
-                field="email",
-                value="info <at> example (dot) com",
-                reasoning="Found on page.",
-            )
-        ],
     )
     pages = [
         WebsitePage(url="https://example.com", text="Contact: info <at> example (dot) com")
@@ -1417,7 +1337,6 @@ def test_validate_profile_email_normalizes_obfuscated_email_present_in_website_p
     _validate_profile_email(profile, pages)
 
     assert profile.email == "info@example.com"
-    assert [entry.field for entry in profile.evidence] == ["email"]
 
 
 def test_validate_profile_email_normalizes_obfuscated_email_with_spaced_markers() -> None:
@@ -1447,34 +1366,24 @@ def test_validate_profile_email_removes_email_absent_from_website_pages() -> Non
     profile = OrganizationProfile(
         queried_name="Example Ltd",
         email="info@example.com",
-        evidence=[
-            EvidenceEntry(field="email", value="info@example.com", reasoning="Found on page."),
-            EvidenceEntry(field="country", value="Switzerland", reasoning="Found on page."),
-        ],
     )
     pages = [WebsitePage(url="https://example.com", text="No email address here.")]
 
     _validate_profile_email(profile, pages)
 
     assert profile.email is None
-    assert [entry.field for entry in profile.evidence] == ["country"]
 
 
 def test_validate_profile_email_removes_invalid_email_before_website_text_check() -> None:
     profile = OrganizationProfile(
         queried_name="Example Ltd",
         email="Contact form",
-        evidence=[
-            EvidenceEntry(field="email", value="Contact form", reasoning="Found on page."),
-            EvidenceEntry(field="country", value="Switzerland", reasoning="Found on page."),
-        ],
     )
     pages = [WebsitePage(url="https://example.com", text="Contact: Contact form")]
 
     _validate_profile_email(profile, pages)
 
     assert profile.email is None
-    assert [entry.field for entry in profile.evidence] == ["country"]
 
 
 def test_validate_profile_email_removes_invalid_email_without_website_pages() -> None:
@@ -1506,12 +1415,10 @@ def test_should_continue_crawl_visits_newly_queued_selected_link() -> None:
             company_type="Commercial Enterprise",
             employees=42,
             phone="+1 555 0100",
-            evidence=[EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found.")],
         ),
         website_pages=[WebsitePage(url="https://example.com", text="Page text.")],
         pending_urls=[CrawlTarget(url="https://example.com/contact", depth=1, node_id=1)],
         page_analysis=PageAnalysis(
-            reasoning="The profile is complete, but a selected link was queued.",
             is_complete=True,
         ),
     )
@@ -1601,7 +1508,6 @@ def test_has_minimum_profile_requires_employees() -> None:
         sector="Manufacturer (secondary)",
         company_type="Commercial Enterprise",
         phone="+1 555 0100",
-        evidence=[EvidenceEntry(field="phone", value="+1 555 0100", reasoning="Found.")],
     )
 
     assert _has_minimum_profile(profile) is False

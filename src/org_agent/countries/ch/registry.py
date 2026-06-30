@@ -6,7 +6,7 @@ import re
 
 import httpx
 
-from org_agent.models import EvidenceEntry, OrganizationProfilePatch, RegistryResult
+from org_agent.models import OrganizationProfilePatch, RegistryResult
 
 
 BASE_URL = "https://www.zefix.admin.ch/ZefixPublicREST"
@@ -71,7 +71,6 @@ async def query_registry(
     detail = detail_response.json()
 
     patch = _build_profile_patch(detail, selected_name=best.get("name"))
-    evidence = _build_evidence(patch, detail_url)
     content = json.dumps(
         {
             "search": candidates,
@@ -87,7 +86,6 @@ async def query_registry(
         status_code=detail_response.status_code,
         content=content[:12000],
         profile_patch=patch,
-        evidence=evidence,
     )
 
 
@@ -148,25 +146,3 @@ def _format_legal_address(address: dict) -> str | None:
     if locality:
         parts.append(locality)
     return ", ".join(parts) if parts else None
-
-
-def _build_evidence(patch: OrganizationProfilePatch, source_url: str) -> list[EvidenceEntry]:
-    evidence: list[EvidenceEntry] = []
-    mappings = {
-        "official_company_name": patch.official_company_name,
-        "registration_id": patch.registration_id,
-        "purpose": patch.purpose,
-        "legal_address": patch.legal_address,
-        "legal_structure": patch.legal_structure,
-    }
-    for field, value in mappings.items():
-        if value:
-            evidence.append(
-                EvidenceEntry(
-                    field=field,
-                    value=value,
-                    source=source_url,
-                    reasoning="Extracted from the Swiss company register (Zefix).",
-                )
-            )
-    return evidence

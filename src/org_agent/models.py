@@ -66,13 +66,6 @@ def profile_display_field_groups() -> tuple[tuple[str, ...], tuple[str, ...]]:
     return WEBSITE_PROFILE_DISPLAY_FIELDS, REGISTRY_PROFILE_DISPLAY_FIELDS
 
 
-class EvidenceEntry(BaseModel):
-    field: str = Field(description="The output field this evidence supports, or 'general'.")
-    value: str | None = Field(default=None, description="The derived value, if applicable.")
-    source: str | None = Field(default=None, description="URL, registry name, or process step.")
-    reasoning: str = Field(description="Brief factual explanation of how this was derived.")
-
-
 class OrganizationProfile(BaseModel):
     queried_name: str
     official_company_name: str | None = None
@@ -98,7 +91,6 @@ class OrganizationProfile(BaseModel):
     country: str | None = None
     region: str | None = None
     status: str = "SUCCESS"
-    evidence: list[EvidenceEntry] = Field(default_factory=list)
 
 
 class LookupResult(BaseModel):
@@ -160,7 +152,6 @@ class RegistryResult(BaseModel):
     status_code: int
     content: str
     profile_patch: OrganizationProfilePatch = Field(default_factory=OrganizationProfilePatch)
-    evidence: list[EvidenceEntry] = Field(default_factory=list)
 
 
 class WebsitePage(BaseModel):
@@ -177,13 +168,12 @@ class WebsiteLink(BaseModel):
 
 class CrawlDecision(BaseModel):
     is_complete: bool = Field(
-        description="Whether enough evidence has been collected to extract the organization profile."
+        description="Whether enough profile data has been collected."
     )
     selected_urls: list[str] = Field(
         default_factory=list,
         description="URLs from the available links that should be visited next.",
     )
-    reasoning: str = Field(description="Brief explanation of the crawl decision.")
 
 
 class IndustrySelection(BaseModel):
@@ -191,7 +181,6 @@ class IndustrySelection(BaseModel):
         default_factory=list,
         description="Canonical industries selected from the provided candidate list.",
     )
-    reasoning: str = Field(description="Brief explanation of the industry selection.")
 
 
 class SectorSelection(BaseModel):
@@ -199,7 +188,6 @@ class SectorSelection(BaseModel):
         default=None,
         description="Canonical economic sector selected from the provided candidate list.",
     )
-    reasoning: str = Field(description="Brief explanation of the sector selection.")
 
 
 class CompanyTypeSelection(BaseModel):
@@ -207,7 +195,6 @@ class CompanyTypeSelection(BaseModel):
         default=None,
         description="Canonical company type selected from the provided candidate list.",
     )
-    reasoning: str = Field(description="Brief explanation of the company type selection.")
 
 
 class LegalStructureSelection(BaseModel):
@@ -215,7 +202,6 @@ class LegalStructureSelection(BaseModel):
         default=None,
         description="Canonical legal structure selected from the provided candidate list.",
     )
-    reasoning: str = Field(description="Brief explanation of the legal structure selection.")
 
 
 class PageExtraction(BaseModel):
@@ -223,13 +209,9 @@ class PageExtraction(BaseModel):
         default_factory=WebsiteOrganizationProfilePatch,
         description="Fields that can be filled or updated from the current page.",
     )
-    evidence: list[EvidenceEntry] = Field(default_factory=list)
     missing_fields: list[str] = Field(
         default_factory=list,
         description="Profile fields still missing after this extraction.",
-    )
-    reasoning: str = Field(
-        description="Brief explanation of what was extracted and from where on the page.",
     )
 
 
@@ -238,13 +220,9 @@ class ContactPageExtraction(BaseModel):
         default_factory=ContactProfilePatch,
         description="Contact fields that can be filled or updated from the current page.",
     )
-    evidence: list[EvidenceEntry] = Field(default_factory=list)
     missing_fields: list[str] = Field(
         default_factory=list,
         description="Contact fields still missing after this extraction.",
-    )
-    reasoning: str = Field(
-        description="Brief explanation of what contact data was extracted and from where on the page.",
     )
 
 
@@ -253,29 +231,23 @@ class CompanyFactsExtraction(BaseModel):
         default_factory=CompanyFactsProfilePatch,
         description="Company fact fields that can be filled or updated from the current page.",
     )
-    evidence: list[EvidenceEntry] = Field(default_factory=list)
     missing_fields: list[str] = Field(
         default_factory=list,
         description="Company fact fields still missing after this extraction.",
-    )
-    reasoning: str = Field(
-        description="Brief explanation of what company facts were extracted and from where on the page.",
     )
 
 
 class PageAnalysis(BaseModel):
     profile_patch: OrganizationProfilePatch = Field(
         default_factory=OrganizationProfilePatch,
-        description="Fields that can be filled or updated from the current evidence.",
+        description="Fields that can be filled or updated from the current page.",
     )
-    evidence: list[EvidenceEntry] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
     selected_urls: list[str] = Field(
         default_factory=list,
         description="URLs from candidate_links that should be visited next.",
     )
     is_complete: bool = False
-    reasoning: str
 
 
 class CrawlTarget(BaseModel):

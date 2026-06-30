@@ -2,7 +2,6 @@ from org_agent.models import (
     PROFILE_DISPLAY_FIELDS,
     REGISTRY_ONLY_PROFILE_FIELDS,
     REGISTRY_PROFILE_DISPLAY_FIELDS,
-    EvidenceEntry,
     LookupResult,
     OrganizationProfile,
     WEBSITE_PROFILE_DISPLAY_FIELDS,
@@ -33,14 +32,6 @@ def test_organization_profile_accepts_expected_fields() -> None:
         country="United States",
         region="California",
         status="FAILED",
-        evidence=[
-            EvidenceEntry(
-                field="queried_website",
-                value="https://example.com",
-                source="search",
-                reasoning="Selected as likely official website.",
-            )
-        ],
     )
 
     assert profile.queried_name == "Example Ltd"
@@ -52,7 +43,6 @@ def test_organization_profile_accepts_expected_fields() -> None:
     assert profile.address_fields == {"address_street": "Example Street"}
     assert profile.legal_address == "Registry Street 10"
     assert profile.status == "FAILED"
-    assert profile.evidence[0].field == "queried_website"
 
 
 def test_profile_display_fields_match_profile_scalar_fields() -> None:
