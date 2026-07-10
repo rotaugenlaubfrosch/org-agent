@@ -1,10 +1,10 @@
 > [!WARNING]
 > **Work in Progress:** This repository is currently under development.
 
+# org-agent 🤖
+
 ![Demo video](docs/demo_video.gif)
 
-
-# org-agent 🤖
 
 `org-agent` enriches an organization profile from a company or organization name and a known website.
 
