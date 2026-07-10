@@ -1,6 +1,8 @@
 > [!WARNING]
 > **Work in Progress:** This repository is currently under development.
 
+<video src="docs/demo_video.mp4" autoplay muted loop playsinline controls></video>
+
 
 # org-agent 🤖
 
