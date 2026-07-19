@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     crawl_log_dir: str | None = Field(default=DEFAULT_CRAWL_LOG_DIR, alias="ORG_AGENT_CRAWL_LOG_DIR")
     playwright_headless: bool = Field(default=True, alias="ORG_AGENT_PLAYWRIGHT_HEADLESS")
     playwright_slow_mo: int = Field(default=0, alias="ORG_AGENT_PLAYWRIGHT_SLOW_MO")
+    browser_use_max_steps: int = Field(default=40, alias="ORG_AGENT_BROWSER_USE_MAX_STEPS")
+    browser_use_headless: bool | None = Field(default=None, alias="ORG_AGENT_BROWSER_USE_HEADLESS")
     description_system_prompt: str = Field(
         default=DEFAULT_DESCRIPTION_SYSTEM_PROMPT,
         alias="ORG_AGENT_DESCRIPTION_SYSTEM_PROMPT",
@@ -73,6 +75,8 @@ class Settings(BaseSettings):
         "crawl_log_enabled",
         "playwright_headless",
         "playwright_slow_mo",
+        "browser_use_max_steps",
+        "browser_use_headless",
         "max_industries",
         "industry_shortlist_size",
         mode="before",
@@ -88,6 +92,8 @@ class Settings(BaseSettings):
             "crawl_log_enabled": True,
             "playwright_headless": True,
             "playwright_slow_mo": 0,
+            "browser_use_max_steps": 40,
+            "browser_use_headless": None,
             "max_industries": 1,
             "industry_shortlist_size": 25,
         }

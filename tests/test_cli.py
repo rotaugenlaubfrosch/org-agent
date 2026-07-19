@@ -6,6 +6,11 @@ from org_agent import cli
 from org_agent.models import LookupResult, OrganizationProfile
 
 
+class _FakeContext:
+    def get_help(self) -> str:
+        return "help"
+
+
 def test_print_profile_table_indents_address_fields(monkeypatch) -> None:
     output = StringIO()
     monkeypatch.setattr(cli, "console", Console(file=output, force_terminal=False, width=100))
@@ -23,6 +28,31 @@ def test_print_profile_table_indents_address_fields(monkeypatch) -> None:
     assert "Example Street" in rendered
     assert "  address_city" in rendered
     assert "Zürich" in rendered
+
+
+def test_cli_forwards_browser_use_option(monkeypatch) -> None:
+    captured = {}
+
+    def fake_lookup_organization(**kwargs):
+        captured.update(kwargs)
+        return LookupResult(website_profile=OrganizationProfile(queried_name=kwargs["name"]))
+
+    monkeypatch.setattr(cli, "lookup_organization", fake_lookup_organization)
+    monkeypatch.setattr(cli, "console", Console(file=StringIO(), force_terminal=False, width=100))
+    monkeypatch.setattr(cli, "err_console", Console(file=StringIO(), force_terminal=False, width=100))
+
+    cli.main(
+        _FakeContext(),
+        name="Example Ltd",
+        website="example.com",
+        country="CH",
+        json_output=False,
+        browser_use=True,
+        quiet=True,
+    )
+
+    assert captured["browser_use"] is True
+    assert captured["country"] == "CH"
 
 
 def test_print_profile_table_draws_separator_after_queried_fields(monkeypatch) -> None:

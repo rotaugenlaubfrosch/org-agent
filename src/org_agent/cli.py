@@ -29,6 +29,8 @@ ORG_AGENT_CRAWL_LOG_ENABLED=<true|false, default true>
 ORG_AGENT_CRAWL_LOG_DIR=<directory for per-run page text logs, default project logs/>
 ORG_AGENT_PLAYWRIGHT_HEADLESS=<true|false, default true>
 ORG_AGENT_PLAYWRIGHT_SLOW_MO=<milliseconds, default 0>
+ORG_AGENT_BROWSER_USE_MAX_STEPS=<steps per browser-use stage, default 40>
+ORG_AGENT_BROWSER_USE_HEADLESS=<true|false, defaults to ORG_AGENT_PLAYWRIGHT_HEADLESS>
 
 Optional country registry credentials:
 ORG_AGENT_REGISTRY_CH_USERNAME=<Swiss registry username>
@@ -39,6 +41,7 @@ Common lookup options:
   --country <code> Two-letter ISO country code for country-specific behavior (e.g. ch)
   --json           Print raw JSON output
   --quiet          Suppress progress output
+  --browser-use    Use local browser-use agent instead of deterministic crawler
 
 Examples:
   org-agent "Example Ltd" --website https://example.com
@@ -69,6 +72,11 @@ def main(
         help="Two-letter ISO country code for country-specific behavior, e.g. ch.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON output."),
+    browser_use: bool = typer.Option(
+        False,
+        "--browser-use",
+        help="Use a local browser-use agent instead of the deterministic Playwright crawler.",
+    ),
     quiet: bool = typer.Option(
         False,
         "--quiet",
@@ -91,6 +99,7 @@ def main(
                 name=name,
                 website=website,
                 country=country,
+                browser_use=browser_use,
             )
         else:
             err_console.rule("[bold cyan]org-agent trace")
@@ -98,6 +107,7 @@ def main(
                 name=name,
                 website=website,
                 country=country,
+                browser_use=browser_use,
                 progress=_make_progress_logger(),
             )
             err_console.rule("[bold green]done")
@@ -165,6 +175,7 @@ def _make_progress_logger():
         "analyze_page": "color(201)",
         "validate_profile": "color(51)",
         "finalize_profile": "yellow",
+        "browser_use": "bright_blue",
     }
 
     def log(step: str, message: str) -> None:
@@ -201,6 +212,9 @@ _ERROR_PROGRESS_PATTERNS = (
     "removed invalid email address",
     "removed email not found",
     "page could not be loaded",
+    "browser-use local mode requires",
+    "browser-use package is not installed",
+    "browser-use stage failed",
     "could not be resolved",
     "no address fields config exists",
 )

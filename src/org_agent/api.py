@@ -14,6 +14,7 @@ async def lookup_organization_async(
     name: str,
     website: str | None = None,
     country: str | None = None,
+    browser_use: bool = False,
     progress: ProgressCallback | None = None,
 ) -> LookupResult:
     if not website or not website.strip():
@@ -25,6 +26,16 @@ async def lookup_organization_async(
     report(progress, "config", f"LLM provider: {settings.llm_provider} ({settings.llm_model})")
     report(progress, "config", f"Country registry: {normalized_country or 'none'}")
     lookup_input = LookupInput(name=name, website=normalized_website)
+    if browser_use:
+        from org_agent.browser_use_lookup import run_browser_use_lookup
+
+        report(progress, "config", "Browser automation: browser-use local mode")
+        return await run_browser_use_lookup(
+            lookup_input,
+            settings,
+            country=normalized_country,
+            progress=progress,
+        )
     return await run_lookup(lookup_input, settings, country=normalized_country, progress=progress)
 
 
@@ -32,6 +43,7 @@ def lookup_organization(
     name: str,
     website: str | None = None,
     country: str | None = None,
+    browser_use: bool = False,
     progress: ProgressCallback | None = None,
 ) -> LookupResult:
     return asyncio.run(
@@ -39,6 +51,7 @@ def lookup_organization(
             name=name,
             website=website,
             country=country,
+            browser_use=browser_use,
             progress=progress,
         )
     )
