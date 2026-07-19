@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Work in Progress:** This repository is currently under development.
+> **Work in Progress:** This repository is currently under development. The `--browser-use` feature is experimental.
 
 # org-agent 🤖
 
@@ -118,61 +118,6 @@ uv run org-agent "Example Ltd" --website example.com --country ch
 
 `--website` is required even when country registry lookup is enabled. The `--country` option must be a two-letter ISO 3166-1 alpha-2 country code, for example `ch`, `li`, or `de`. When set, the country name is resolved dynamically with `pycountry`, website crawling prioritizes links that appear to belong to that country branch, and extraction prompts prioritize information for that country. If a registry adapter exists at `src/org_agent/countries/<code>/registry.py`, the registry lookup is attempted. If no adapter exists, or required registry credentials are missing, the registry lookup is skipped and the website crawl continues normally. Without `--country`, the generic website crawl and extraction behavior is unchanged.
 
-## Experimental Browser-Use Mode
-
-`--browser-use` is an experimental alternative to the default deterministic crawler. It runs the open-source `browser-use` package locally and lets an AI browser agent interact with the website directly.
-
-Use this mode for experimentation and debugging, not as the default production path. The deterministic Playwright/LangGraph crawler remains the main workflow.
-
-Install the browser-use browser dependencies separately:
-
-```bash
-uvx browser-use install
-```
-
-Configure local Ollama execution:
-
-```env
-ORG_AGENT_LLM_PROVIDER=ollama
-ORG_AGENT_LLM_MODEL=<local Ollama model>
-ORG_AGENT_OLLAMA_BASE_URL=http://localhost:11434
-```
-
-Optional browser-use settings:
-
-```env
-ORG_AGENT_BROWSER_USE_MAX_STEPS=<steps per browser-use extraction stage, default 40>
-ORG_AGENT_BROWSER_USE_HEADLESS=<true|false, defaults to ORG_AGENT_PLAYWRIGHT_HEADLESS>
-```
-
-Run experimental browser-use mode:
-
-```bash
-uv run org-agent "Example Ltd" --website example.com --browser-use
-```
-
-In this mode, the CLI trace explicitly reports that local browser-use mode is active and that no Browser Use API or Cloud SDK is used. The workflow is split into focused stages:
-
-- Stage 1 extracts contact fields: `address`, `phone`, `email`, and `address_country`
-- Stage 2 extracts organization facts: `description`, `employees`, and `legal_structure`
-- Stage 3 classifies `sector`, `company_type`, and `industry`
-
-After these stages, org-agent still runs the normal validation and registry handling where applicable. If `--browser-use` is not set, the existing deterministic Playwright/LangGraph workflow is unchanged.
-
-To watch the experimental browser-use agent in a visible browser window, disable headless mode:
-
-```env
-ORG_AGENT_BROWSER_USE_HEADLESS=false
-```
-
-Element highlighting is enabled for this mode to make browser-use actions easier to inspect. There can still be long periods where the visible page does not change because the local LLM is reasoning rather than navigating or clicking.
-
-Current limitations:
-
-- only local Ollama execution is supported
-- no Browser Use Cloud or Browser Use API is used
-- behavior can be slower and less deterministic than the default crawler
-- headed mode is for observability only and does not guarantee continuous visible page updates
 
 ## Website Crawling
  
@@ -391,3 +336,60 @@ Show CLI help:
 ```bash
 uv run org-agent --help
 ```
+
+
+## Experimental Browser-Use Mode
+
+`--browser-use` is an experimental alternative to the default deterministic crawler. It runs the open-source `browser-use` package locally and lets an AI browser agent interact with the website directly.
+
+Use this mode for experimentation and debugging, not as the default production path. The deterministic Playwright/LangGraph crawler remains the main workflow.
+
+Install the browser-use browser dependencies separately:
+
+```bash
+uvx browser-use install
+```
+
+Configure local Ollama execution:
+
+```env
+ORG_AGENT_LLM_PROVIDER=ollama
+ORG_AGENT_LLM_MODEL=<local Ollama model>
+ORG_AGENT_OLLAMA_BASE_URL=http://localhost:11434
+```
+
+Optional browser-use settings:
+
+```env
+ORG_AGENT_BROWSER_USE_MAX_STEPS=<steps per browser-use extraction stage, default 40>
+ORG_AGENT_BROWSER_USE_HEADLESS=<true|false, defaults to ORG_AGENT_PLAYWRIGHT_HEADLESS>
+```
+
+Run experimental browser-use mode:
+
+```bash
+uv run org-agent "Example Ltd" --website example.com --browser-use
+```
+
+In this mode, the CLI trace explicitly reports that local browser-use mode is active and that no Browser Use API or Cloud SDK is used. The workflow is split into focused stages:
+
+- Stage 1 extracts contact fields: `address`, `phone`, `email`, and `address_country`
+- Stage 2 extracts organization facts: `description`, `employees`, and `legal_structure`
+- Stage 3 classifies `sector`, `company_type`, and `industry`
+
+After these stages, org-agent still runs the normal validation and registry handling where applicable. If `--browser-use` is not set, the existing deterministic Playwright/LangGraph workflow is unchanged.
+
+To watch the experimental browser-use agent in a visible browser window, disable headless mode:
+
+```env
+ORG_AGENT_BROWSER_USE_HEADLESS=false
+```
+
+Element highlighting is enabled for this mode to make browser-use actions easier to inspect. There can still be long periods where the visible page does not change because the local LLM is reasoning rather than navigating or clicking.
+
+Current limitations:
+
+- only local Ollama execution is supported
+- no Browser Use Cloud or Browser Use API is used
+- behavior can be slower and less deterministic than the default crawler
+- headed mode is for observability only and does not guarantee continuous visible page updates
