@@ -9,6 +9,7 @@
 `org-agent` enriches an organization profile from a company or organization name and a known website.
 
 It is a Python package and CLI tool built with LangGraph, Playwright, Typer, Rich, and uv.
+The default workflow uses a deterministic Playwright crawler. An experimental `--browser-use` mode is available separately for testing an AI browser agent backed by a local Ollama model.
 
 ## LangGraph Graph Structure
 
@@ -80,6 +81,7 @@ Common lookup options:
 - `--website <url>`: required official website. Bare domains like `example.com` are accepted and normalized to `https://example.com`.
 - `--country <code>`: optional two-letter ISO country code. When set, website crawling and extraction prioritize that country branch, registry lookup is attempted if an adapter exists, and country-specific address field derivation is triggered.
 - `--json`: print raw JSON output with separate `website_profile` and `registry_profile` objects
+- `--browser-use`: experimental local browser-use mode. It replaces the deterministic Playwright crawler with an AI browser agent, currently requires `ORG_AGENT_LLM_PROVIDER=ollama`, and does not use Browser Use Cloud or the Browser Use API
 - `--quiet`: suppress progress output
 
 Run with a known website:
@@ -116,8 +118,66 @@ uv run org-agent "Example Ltd" --website example.com --country ch
 
 `--website` is required even when country registry lookup is enabled. The `--country` option must be a two-letter ISO 3166-1 alpha-2 country code, for example `ch`, `li`, or `de`. When set, the country name is resolved dynamically with `pycountry`, website crawling prioritizes links that appear to belong to that country branch, and extraction prompts prioritize information for that country. If a registry adapter exists at `src/org_agent/countries/<code>/registry.py`, the registry lookup is attempted. If no adapter exists, or required registry credentials are missing, the registry lookup is skipped and the website crawl continues normally. Without `--country`, the generic website crawl and extraction behavior is unchanged.
 
+## Experimental Browser-Use Mode
+
+`--browser-use` is an experimental alternative to the default deterministic crawler. It runs the open-source `browser-use` package locally and lets an AI browser agent interact with the website directly.
+
+Use this mode for experimentation and debugging, not as the default production path. The deterministic Playwright/LangGraph crawler remains the main workflow.
+
+Install the browser-use browser dependencies separately:
+
+```bash
+uvx browser-use install
+```
+
+Configure local Ollama execution:
+
+```env
+ORG_AGENT_LLM_PROVIDER=ollama
+ORG_AGENT_LLM_MODEL=<local Ollama model>
+ORG_AGENT_OLLAMA_BASE_URL=http://localhost:11434
+```
+
+Optional browser-use settings:
+
+```env
+ORG_AGENT_BROWSER_USE_MAX_STEPS=<steps per browser-use extraction stage, default 40>
+ORG_AGENT_BROWSER_USE_HEADLESS=<true|false, defaults to ORG_AGENT_PLAYWRIGHT_HEADLESS>
+```
+
+Run experimental browser-use mode:
+
+```bash
+uv run org-agent "Example Ltd" --website example.com --browser-use
+```
+
+In this mode, the CLI trace explicitly reports that local browser-use mode is active and that no Browser Use API or Cloud SDK is used. The workflow is split into focused stages:
+
+- Stage 1 extracts contact fields: `address`, `phone`, `email`, and `address_country`
+- Stage 2 extracts organization facts: `description`, `employees`, and `legal_structure`
+- Stage 3 classifies `sector`, `company_type`, and `industry`
+
+After these stages, org-agent still runs the normal validation and registry handling where applicable. If `--browser-use` is not set, the existing deterministic Playwright/LangGraph workflow is unchanged.
+
+To watch the experimental browser-use agent in a visible browser window, disable headless mode:
+
+```env
+ORG_AGENT_BROWSER_USE_HEADLESS=false
+```
+
+Element highlighting is enabled for this mode to make browser-use actions easier to inspect. There can still be long periods where the visible page does not change because the local LLM is reasoning rather than navigating or clicking.
+
+Current limitations:
+
+- only local Ollama execution is supported
+- no Browser Use Cloud or Browser Use API is used
+- behavior can be slower and less deterministic than the default crawler
+- headed mode is for observability only and does not guarantee continuous visible page updates
+
 ## Website Crawling
  
+This section describes the default deterministic Playwright/LangGraph workflow. It does not apply when `--browser-use` is enabled.
+
 The crawler starts only from the provided website URL. It does not search for a website and does not guess paths like `/contact` or `/impressum`.
 
 The crawler:
